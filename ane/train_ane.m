@@ -336,6 +336,7 @@ int main(int argc, char *argv[]) {
         uint64_t t_wall_start = mach_absolute_time();
 
         srand48(42 + start_step);
+        float res_alpha = 1.0f / sqrtf(2.0f * NLAYERS);
 
         bool wall_time_exceeded = false;
         int step = start_step;
@@ -439,7 +440,7 @@ int main(int argc, char *argv[]) {
                     io_read_fp16(kern[L].fwdAttn->ioOut, ac->attn_out, 4*DIM, DIM, SEQ);
                     io_read_fp16(kern[L].fwdAttn->ioOut, ac->xnorm,    5*DIM, DIM, SEQ);
                     t1=mach_absolute_time(); t_io+=tb_ms(t1-t0); t0=t1;
-                    vDSP_vadd(x_cur, 1, ac->o_out, 1, ac->x2, 1, (vDSP_Length)(SEQ*DIM));
+                    vDSP_vsma(ac->o_out, 1, &res_alpha, x_cur, 1, ac->x2, 1, (vDSP_Length)(SEQ*DIM));
                     t1=mach_absolute_time(); t_elem+=tb_ms(t1-t0); t0=t1;
                     io_write_fp16(kern[L].fwdFFN->ioIn, ac->x2, DIM, SEQ);
                     t1=mach_absolute_time(); t_io+=tb_ms(t1-t0); t0=t1;
@@ -451,7 +452,7 @@ int main(int argc, char *argv[]) {
                     io_read_fp16(kern[L].fwdFFN->ioOut, ac->silu_out, DIM+2*HIDDEN,   HIDDEN, SEQ);
                     io_read_fp16(kern[L].fwdFFN->ioOut, ac->x2norm,   DIM+3*HIDDEN,   DIM,    SEQ);
                     t1=mach_absolute_time(); t_io+=tb_ms(t1-t0); t0=t1;
-                    vDSP_vadd(ac->x2, 1, ac->ffn_out, 1, x_cur, 1, (vDSP_Length)(SEQ*DIM));
+                    vDSP_vsma(ac->ffn_out, 1, &res_alpha, ac->x2, 1, x_cur, 1, (vDSP_Length)(SEQ*DIM));
                     t1=mach_absolute_time(); t_elem+=tb_ms(t1-t0);
                 }
 
@@ -462,7 +463,11 @@ int main(int argc, char *argv[]) {
                             VOCAB, SEQ, DIM, 1.0f,
                             embed, DIM, x_final, SEQ, 0.0f, logits, SEQ);
                 t1=mach_absolute_time(); t_cls+=tb_ms(t1-t0); t0=t1;
+                logit_softcap(logits, VOCAB * SEQ, SOFTCAP);
                 float loss = cross_entropy_loss(dlogits, logits, target_tokens, VOCAB, SEQ);
+                logit_softcap_bwd(dlogits, logits, VOCAB * SEQ, SOFTCAP);
+                float ls = LOSS_SCALE;
+                vDSP_vsmul(dlogits, 1, &ls, dlogits, 1, (vDSP_Length)(SEQ*VOCAB));
                 last_loss = loss;
                 t1=mach_absolute_time(); t_elem+=tb_ms(t1-t0); t0=t1;
 
@@ -484,7 +489,7 @@ int main(int argc, char *argv[]) {
                 for (int L=NLAYERS-1; L>=0; L--) {
                     LayerActs *ac = &acts[L];
                     LayerGrads *gr = &grads[L];
-                    memcpy(dffn, dy, SEQ*DIM*4);
+                    vDSP_vsmul(dy, 1, &res_alpha, dffn, 1, (vDSP_Length)(SEQ*DIM));
 
                     io_write_fp16_at(kern[L].ffnBwd->ioIn, 0, dffn, DIM, SEQ);
                     io_copy(kern[L].ffnBwd->ioIn, DIM, kern[L].fwdFFN->ioOut, DIM, 2*HIDDEN, SEQ);
@@ -512,7 +517,7 @@ int main(int argc, char *argv[]) {
                     rmsnorm_bwd(dx2, gr->rms_ffn, dx_ffn, ac->x2, lw[L].rms_ffn, DIM, SEQ);
                     for(int i=0;i<SEQ*DIM;i++) dx2[i] += dy[i];
 
-                    memcpy(do_out_buf, dx2, SEQ*DIM*4);
+                    vDSP_vsmul(dx2, 1, &res_alpha, do_out_buf, 1, (vDSP_Length)(SEQ*DIM));
                     float *capt_do = (float*)malloc(SEQ*DIM*4); memcpy(capt_do, do_out_buf, SEQ*DIM*4);
                     float *capt_attn = (float*)malloc(SEQ*DIM*4); memcpy(capt_attn, ac->attn_out, SEQ*DIM*4);
                     dispatch_group_async(dw_grp, dw_q, ^{
@@ -522,7 +527,7 @@ int main(int argc, char *argv[]) {
                     });
 
                     io_copy(kern[L].sdpaBwd1->ioIn, 0, kern[L].fwdAttn->ioOut, DIM, 3*DIM, SEQ);
-                    io_write_fp16_at(kern[L].sdpaBwd1->ioIn, 3*DIM, dx2, DIM, SEQ);
+                    io_write_fp16_at(kern[L].sdpaBwd1->ioIn, 3*DIM, do_out_buf, DIM, SEQ);
                     ane_eval(kern[L].sdpaBwd1);
                     io_copy(sdpaBwd2[L]->ioIn, 0, kern[L].sdpaBwd1->ioOut, DIM, 2*SCORE_CH, SEQ);
                     io_copy(sdpaBwd2[L]->ioIn, 2*SCORE_CH, kern[L].fwdAttn->ioOut, DIM, 2*DIM, SEQ);
@@ -577,8 +582,8 @@ int main(int argc, char *argv[]) {
 
             dispatch_group_wait(dw_grp, DISPATCH_TIME_FOREVER);
 
-            // Gradient averaging
-            float gsc = 1.0f / steps_batch;
+            // Gradient averaging (undo loss scaling during averaging)
+            float gsc = 1.0f / ((float)steps_batch * LOSS_SCALE);
             for (int L=0; L<NLAYERS; L++) {
                 LayerGrads *g = &grads[L];
                 for(size_t i=0;i<WQ_SZ;i++){g->Wq[i]*=gsc;g->Wk[i]*=gsc;g->Wv[i]*=gsc;g->Wo[i]*=gsc;}
@@ -595,33 +600,36 @@ int main(int argc, char *argv[]) {
             if (gnorm > GRAD_CLIP_MAX)
                 printf("  [grad clip: %.2f → %.2f]\n", gnorm, GRAD_CLIP_MAX);
 
-            // LR warmdown schedule
-            double elapsed_s = (tb_ms(mach_absolute_time() - t_wall_start) + cum_wall) / 1000.0;
-            double progress = elapsed_s / wall_time_budget;
-            float scheduled_lr = lr;
-            if (WARMDOWN_RATIO > 0 && progress > (1.0 - WARMDOWN_RATIO)) {
-                float cooldown = (float)((1.0 - progress) / WARMDOWN_RATIO);
-                if (cooldown < 0) cooldown = 0;
-                scheduled_lr = lr * cooldown;
+            // Cosine LR schedule with linear warmup
+            float scheduled_lr;
+            if (adam_t < LR_WARMUP_STEPS) {
+                scheduled_lr = lr * ((float)(adam_t + 1)) / LR_WARMUP_STEPS;
+            } else {
+                float decay_ratio = (float)(adam_t - LR_WARMUP_STEPS) / (float)(total_steps - LR_WARMUP_STEPS);
+                if (decay_ratio > 1.0f) decay_ratio = 1.0f;
+                float min_lr = lr * LR_MIN_FRAC;
+                scheduled_lr = min_lr + 0.5f * (1.0f + cosf(M_PI * decay_ratio)) * (lr - min_lr);
             }
 
-            // Adam update with weight decay + scheduled LR
+            // Adam update with weight decay + differential LR
             adam_t++;
             float wd = WEIGHT_DECAY;
+            float mlr = scheduled_lr * MATRIX_LR_SCALE;  // weight matrices
+            float elr = scheduled_lr * EMBED_LR_SCALE;   // embeddings
             for (int L=0; L<NLAYERS; L++) {
                 LayerGrads *g = &grads[L];
-                adam_update(lw[L].Wq, g->Wq, &la[L].Wq, adam_t, scheduled_lr, adam_b1, adam_b2, adam_eps, wd);
-                adam_update(lw[L].Wk, g->Wk, &la[L].Wk, adam_t, scheduled_lr, adam_b1, adam_b2, adam_eps, wd);
-                adam_update(lw[L].Wv, g->Wv, &la[L].Wv, adam_t, scheduled_lr, adam_b1, adam_b2, adam_eps, wd);
-                adam_update(lw[L].Wo, g->Wo, &la[L].Wo, adam_t, scheduled_lr, adam_b1, adam_b2, adam_eps, wd);
-                adam_update(lw[L].W1, g->W1, &la[L].W1, adam_t, scheduled_lr, adam_b1, adam_b2, adam_eps, wd);
-                adam_update(lw[L].W2, g->W2, &la[L].W2, adam_t, scheduled_lr, adam_b1, adam_b2, adam_eps, wd);
-                adam_update(lw[L].W3, g->W3, &la[L].W3, adam_t, scheduled_lr, adam_b1, adam_b2, adam_eps, wd);
+                adam_update(lw[L].Wq, g->Wq, &la[L].Wq, adam_t, mlr, adam_b1, adam_b2, adam_eps, wd);
+                adam_update(lw[L].Wk, g->Wk, &la[L].Wk, adam_t, mlr, adam_b1, adam_b2, adam_eps, wd);
+                adam_update(lw[L].Wv, g->Wv, &la[L].Wv, adam_t, mlr, adam_b1, adam_b2, adam_eps, wd);
+                adam_update(lw[L].Wo, g->Wo, &la[L].Wo, adam_t, mlr, adam_b1, adam_b2, adam_eps, wd);
+                adam_update(lw[L].W1, g->W1, &la[L].W1, adam_t, mlr, adam_b1, adam_b2, adam_eps, wd);
+                adam_update(lw[L].W2, g->W2, &la[L].W2, adam_t, mlr, adam_b1, adam_b2, adam_eps, wd);
+                adam_update(lw[L].W3, g->W3, &la[L].W3, adam_t, mlr, adam_b1, adam_b2, adam_eps, wd);
                 adam_update(lw[L].rms_att, g->rms_att, &la[L].rms_att, adam_t, scheduled_lr, adam_b1, adam_b2, adam_eps, 0.0f);
                 adam_update(lw[L].rms_ffn, g->rms_ffn, &la[L].rms_ffn, adam_t, scheduled_lr, adam_b1, adam_b2, adam_eps, 0.0f);
             }
             adam_update(rms_final, grms_final, &arms_final, adam_t, scheduled_lr, adam_b1, adam_b2, adam_eps, 0.0f);
-            adam_update(embed, gembed, &aembed, adam_t, scheduled_lr, adam_b1, adam_b2, adam_eps, 0.0f);
+            adam_update(embed, gembed, &aembed, adam_t, elr, adam_b1, adam_b2, adam_eps, 0.0f);
 
             printf("  [batch %d: compile=%.0fms train=%.1fms (%.1fms/step) compiles=%d]\n",
                    steps_batch, cms, tms, tms/steps_batch, g_compile_count);
@@ -669,16 +677,16 @@ int main(int argc, char *argv[]) {
                     ane_eval(kern[L].fwdAttn);
                     float *o_tmp = (float*)malloc(SEQ*DIM*4);
                     io_read_fp16(kern[L].fwdAttn->ioOut, o_tmp, 0, DIM, SEQ);
-                    // x_cur = x_cur + o_out (attention residual)
+                    // x_cur = x_cur + res_alpha * o_out (attention residual)
                     float *x2_tmp = (float*)malloc(SEQ*DIM*4);
-                    vDSP_vadd(x_cur, 1, o_tmp, 1, x2_tmp, 1, (vDSP_Length)(SEQ*DIM));
+                    vDSP_vsma(o_tmp, 1, &res_alpha, x_cur, 1, x2_tmp, 1, (vDSP_Length)(SEQ*DIM));
                     // FFN forward
                     io_write_fp16(kern[L].fwdFFN->ioIn, x2_tmp, DIM, SEQ);
                     ane_eval(kern[L].fwdFFN);
                     float *ffn_tmp = (float*)malloc(SEQ*DIM*4);
                     io_read_fp16(kern[L].fwdFFN->ioOut, ffn_tmp, 0, DIM, SEQ);
-                    // x_cur = x2 + ffn_out
-                    vDSP_vadd(x2_tmp, 1, ffn_tmp, 1, x_cur, 1, (vDSP_Length)(SEQ*DIM));
+                    // x_cur = x2 + res_alpha * ffn_out
+                    vDSP_vsma(ffn_tmp, 1, &res_alpha, x2_tmp, 1, x_cur, 1, (vDSP_Length)(SEQ*DIM));
                     free(o_tmp); free(x2_tmp); free(ffn_tmp);
                 }
                 rmsnorm(x_final, x_cur, rms_final, DIM, SEQ);

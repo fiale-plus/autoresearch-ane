@@ -63,6 +63,27 @@ static void adam_update(float *w, const float *g, AdamState *s, int t, float lr,
     }
 }
 
+// Logit softcapping: cap * tanh(logits / cap), clamps logits to [-cap, cap]
+static void logit_softcap(float *logits, int n, float cap) {
+    float inv_cap = 1.0f / cap;
+    vDSP_vsmul(logits, 1, &inv_cap, logits, 1, (vDSP_Length)n);
+    int ni = n;
+    vvtanhf(logits, logits, &ni);
+    vDSP_vsmul(logits, 1, &cap, logits, 1, (vDSP_Length)n);
+}
+
+// Logit softcap backward: dlogits *= 1 - tanh²(x/cap) = 1 - (capped/cap)²
+static void logit_softcap_bwd(float *dlogits, const float *capped_logits, int n, float cap) {
+    float inv_cap = 1.0f / cap;
+    float *tmp = (float*)malloc(n * sizeof(float));
+    vDSP_vsmul(capped_logits, 1, &inv_cap, tmp, 1, (vDSP_Length)n);  // tanh values
+    vDSP_vmul(tmp, 1, tmp, 1, tmp, 1, (vDSP_Length)n);  // tanh²
+    float neg_one = -1.0f, one = 1.0f;
+    vDSP_vsmsa(tmp, 1, &neg_one, &one, tmp, 1, (vDSP_Length)n);  // 1 - tanh²
+    vDSP_vmul(dlogits, 1, tmp, 1, dlogits, 1, (vDSP_Length)n);
+    free(tmp);
+}
+
 // Cross-entropy loss + gradient for logits (column-major: [VOCAB, SEQ])
 // logits[v*SEQ+t] = logit for vocab v, position t
 // targets[t] = target token id for position t

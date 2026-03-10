@@ -100,10 +100,14 @@ static Kern *compile_kern_mil_w(NSString *mil, NSDictionary *weights, int ic_byt
     }
     NSError *e = nil;
     if (!((BOOL(*)(id,SEL,unsigned int,id,NSError**))objc_msgSend)(mdl, @selector(compileWithQoS:options:error:), 21, @{}, &e)) {
-        printf("  [compile] FAIL: %s\n", e ? [[e description] UTF8String] : "no error"); return NULL;
+        printf("  [compile] FAIL: %s\n", e ? [[e description] UTF8String] : "no error");
+        [[NSFileManager defaultManager] removeItemAtPath:td error:nil];
+        return NULL;
     }
     if (!((BOOL(*)(id,SEL,unsigned int,id,NSError**))objc_msgSend)(mdl, @selector(loadWithQoS:options:error:), 21, @{}, &e)) {
-        printf("  [compile] load FAIL\n"); return NULL;
+        printf("  [compile] load FAIL\n");
+        [[NSFileManager defaultManager] removeItemAtPath:td error:nil];
+        return NULL;
     }
     __sync_fetch_and_add(&g_compile_count, 1);
     Kern *k = (Kern*)calloc(1, sizeof(Kern));

@@ -127,20 +127,29 @@ The agent edits `ane/experiment_config.h`. All hyperparameters and their current
 
 | Parameter | Value | Notes |
 |---|---|---|
-| `LEARNING_RATE` | 1e-3f | Global learning rate |
-| `ADAM_BETA1` | 0.8f | First moment decay (CUDA reference value) |
-| `ADAM_BETA2` | 0.95f | Second moment decay (CUDA reference value) |
+| `LEARNING_RATE` | 3e-4f | Base learning rate (scaled by differential LR multipliers below) |
+| `ADAM_BETA1` | 0.9f | First moment decay |
+| `ADAM_BETA2` | 0.95f | Second moment decay (ncdrone uses 0.95 vs default 0.999) |
 | `ADAM_EPS` | 1e-8f | Adam epsilon |
-| `ACCUM_STEPS` | 1 | Gradient accumulation steps. Lower = more weight updates per budget. Each step recompiles all ANE kernels |
+| `ACCUM_STEPS` | 4 | Gradient accumulation steps per recompile batch |
 | `GRAD_CLIP_MAX` | 1.0f | Global L2 gradient norm clip threshold |
 | `WEIGHT_DECAY` | 0.2f | Decoupled weight decay (AdamW). Applied only to weight matrices, not embeddings or RMSNorm |
-| `WARMDOWN_RATIO` | 0.0f | Fraction of wall-time for linear LR decay to 0. Use 0.3 for annealing phase |
+| `LR_WARMUP_STEPS` | 100 | Linear warmup steps before cosine decay |
+| `LR_MIN_FRAC` | 0.1f | Cosine schedule decays LR to this fraction of max |
+| `LOSS_SCALE` | 256.0f | Loss scaling factor — prevents FP16 gradient underflow. Undone during gradient averaging |
+| `SOFTCAP` | 15.0f | Logit softcapping: `cap * tanh(logits/cap)`, clamps logits to [-cap, cap] to prevent explosion |
+| `EMBED_LR_SCALE` | 5.0f | Embedding LR = base LR × this (embeddings learn faster) |
+| `MATRIX_LR_SCALE` | 0.05f | Weight matrix LR = base LR × this (matrices learn slower) |
 
-**Optimizer features** (implemented during autonomous research):
+**Optimizer features** (from maderix/ANE + ncdrone research):
 
 - **AdamW** — decoupled weight decay applied before Adam step, only on weight matrices
 - **Gradient clipping** — global L2 norm across all parameters using vDSP
-- **LR warmdown** — linear decay to 0 in final portion of wall-time budget
+- **Cosine LR schedule** — linear warmup for `LR_WARMUP_STEPS`, then cosine decay to `LR_MIN_FRAC` of max LR
+- **Loss scaling (256×)** — scales gradients up before FP16 backward pass, undone during gradient averaging. Prevents underflow that causes the 5.5 plateau (maderix)
+- **Logit softcapping** — `cap * tanh(logits/cap)` before softmax with chain-rule correction in backward. Prevents logit explosion during training
+- **Differential learning rates** — embeddings at 5× base LR, weight matrices at 0.05× base LR, norm params at 1× base LR (ncdrone)
+- **Residual scaling** — residual connections scaled by `1/sqrt(2*NLAYERS)` to stabilize deep residual streams
 
 ### Differences from the CUDA backend
 
@@ -148,7 +157,7 @@ The ANE backend is a separate training stack, not a port of `train.py`. Key diff
 
 | | CUDA (`train.py`) | ANE (`train_ane.m`) |
 |---|---|---|
-| **Optimizer** | Muon + AdamW (per-parameter-group LRs, weight decay, momentum scheduling) | AdamW (global LR, weight decay, grad clipping, LR warmdown) |
+| **Optimizer** | Muon + AdamW (per-parameter-group LRs, weight decay, momentum scheduling) | AdamW (differential LR, cosine schedule, loss scaling, logit softcap, residual scaling) |
 | **Data** | climbmix-400b, custom 8K BPE | TinyStories, Llama2 32K BPE |
 | **Metric** | `val_bpb` (bits per byte) | `val_loss` (cross-entropy) |
 | **Language** | Python / PyTorch | Objective-C / raw MIL kernels |
