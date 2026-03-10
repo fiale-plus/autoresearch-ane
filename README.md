@@ -84,8 +84,6 @@ I think these would be the reasonable hyperparameters to play with. Ask your fav
 
 This fork adds an **ANE training backend** that runs transformer training directly on the Apple Neural Engine via reverse-engineered private APIs. No GPU required — trains on the 15.8 TFLOPS ANE available in every Apple Silicon Mac.
 
-Based on [maderix/ANE](https://github.com/maderix/ANE) — the first project to train transformers directly on ANE using Objective-C and raw MIL kernel compilation.
-
 ### How it works
 
 - Uses TinyStories dataset with Llama2 32K BPE tokenizer (ANE's native data format)
