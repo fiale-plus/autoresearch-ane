@@ -10,6 +10,9 @@
 #define ADAM_BETA1 0.9f
 #define ADAM_BETA2 0.95f
 #define ADAM_EPS 1e-8f
+// Gradient accumulation steps before Adam update + weight re-staging (~50ms).
+// Lower = more weight updates per wall-clock minute. With dynamic pipeline,
+// there is no recompilation cost — only the cheap weight transpose + IOSurface write.
 #define ACCUM_STEPS 4
 #define GRAD_CLIP_MAX 1.0f
 #define WEIGHT_DECAY 0.2f

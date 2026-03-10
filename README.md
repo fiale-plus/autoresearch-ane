@@ -87,8 +87,10 @@ This fork adds an **ANE training backend** that runs transformer training direct
 ### How it works
 
 - Uses TinyStories dataset with Llama2 32K BPE tokenizer (ANE's native data format)
-- Compiles forward and backward ANE kernels with baked weights, recompiles after each Adam update
-- Uses `exec()` restart to work around ANE's ~100 kernel compile limit per process
+- **Dynamic weight pipeline**: 10 ANE kernels are compiled once at startup (~470ms). Weights are passed via IOSurface spatial dimensions using `slice_by_size`, not baked into kernels — no recompilation during training
+- After each Adam update, weights are transposed and re-staged to per-layer IOSurfaces (~50ms)
+- **Vocab compaction**: only ~9K of 32K tokens appear in TinyStories, so classifier SGEMM is ~3.5x smaller
+- **Scaled initialization**: Wo and W2 weights initialized with `1/sqrt(2*NLAYERS)` residual scaling
 - Metric is `val_loss` (cross-entropy), not `val_bpb` — experiments are compared within this framework
 - Agent edits only `ane/experiment_config.h` (architecture + optimizer hyperparameters)
 
@@ -131,7 +133,7 @@ The agent edits `ane/experiment_config.h`. All hyperparameters and their current
 | `ADAM_BETA1` | 0.9f | First moment decay |
 | `ADAM_BETA2` | 0.95f | Second moment decay (ncdrone uses 0.95 vs default 0.999) |
 | `ADAM_EPS` | 1e-8f | Adam epsilon |
-| `ACCUM_STEPS` | 4 | Gradient accumulation steps per recompile batch |
+| `ACCUM_STEPS` | 4 | Gradient accumulation steps per Adam update + weight re-staging (~50ms) |
 | `GRAD_CLIP_MAX` | 1.0f | Global L2 gradient norm clip threshold |
 | `WEIGHT_DECAY` | 0.2f | Decoupled weight decay (AdamW). Applied only to weight matrices, not embeddings or RMSNorm |
 | `LR_WARMUP_STEPS` | 100 | Linear warmup steps before cosine decay |
@@ -196,16 +198,11 @@ The agent will modify `ane/experiment_config.h`, run experiments via `harness_an
 ```
 ane/                         # ANE training backend
 ├── experiment_config.h      # Agent's ONLY editing target
-├── stories_config.h         # Model config (includes experiment_config.h)
-├── stories_io.h             # IOSurface I/O helpers
-├── stories_mil.h            # MIL kernel generators
-├── stories_cpu_ops.h        # CPU ops (RMSNorm, cross-entropy, Adam)
-├── forward.h                # Forward pass helpers
-├── backward.h               # Backward pass helpers
-├── ane_runtime.h            # ANE runtime wrapper
-├── ane_mil_gen.h             # MIL text generation
-├── model.h                  # Model struct + weight loading
-├── train_ane.m              # Training binary (+wall-time, +val, +JSON)
+├── stories_config.h         # Model config, structs (includes experiment_config.h)
+├── stories_io.h             # IOSurface I/O, dynamic weight staging, request helpers
+├── stories_mil_dynamic.h    # Dynamic MIL kernel generators (10 kernels, slice_by_size weights)
+├── stories_cpu_ops.h        # CPU ops (RMSNorm, SiLU bwd, cross-entropy, Adam, vocab compaction)
+├── train_ane.m              # Training binary (dynamic pipeline, one-time compile, wall-time budget)
 ├── download_data.sh         # TinyStories data download
 └── Makefile                 # Build train_ane binary
 harness_ane.py               # ANE orchestrator
