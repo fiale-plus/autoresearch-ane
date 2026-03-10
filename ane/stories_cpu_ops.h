@@ -129,6 +129,54 @@ static float cross_entropy_loss(float *dlogits, const float *logits, const uint1
     return total_loss / S;
 }
 
+// Vocab compaction: map full 32K vocab to ~1900 active tokens
+typedef struct {
+    int compact_vocab;          // number of active tokens
+    int *full_to_compact;       // [VOCAB] → compact id (-1 if unused)
+    int *compact_to_full;       // [compact_vocab] → full vocab id
+} VocabMap;
+
+static VocabMap vocab_map_build(const uint16_t *data, size_t n_tokens, int full_vocab) {
+    VocabMap vm;
+    vm.full_to_compact = (int*)malloc(full_vocab * sizeof(int));
+    memset(vm.full_to_compact, -1, full_vocab * sizeof(int));
+    for (size_t i = 0; i < n_tokens; i++)
+        vm.full_to_compact[data[i]] = 0;
+    int cid = 0;
+    for (int v = 0; v < full_vocab; v++) {
+        if (vm.full_to_compact[v] == 0)
+            vm.full_to_compact[v] = cid++;
+        else
+            vm.full_to_compact[v] = -1;
+    }
+    vm.compact_vocab = cid;
+    vm.compact_to_full = (int*)malloc(cid * sizeof(int));
+    for (int v = 0; v < full_vocab; v++)
+        if (vm.full_to_compact[v] >= 0)
+            vm.compact_to_full[vm.full_to_compact[v]] = v;
+    return vm;
+}
+
+static float *vocab_compact_embed(const float *full_embed, const VocabMap *vm, int dim) {
+    float *ce = (float*)malloc((size_t)vm->compact_vocab * dim * 4);
+    for (int c = 0; c < vm->compact_vocab; c++)
+        memcpy(ce + c*dim, full_embed + vm->compact_to_full[c]*dim, dim*4);
+    return ce;
+}
+
+static void vocab_scatter_grads(float *full_gembed, const float *compact_gembed, const VocabMap *vm, int dim) {
+    for (int c = 0; c < vm->compact_vocab; c++) {
+        int fv = vm->compact_to_full[c];
+        for (int d = 0; d < dim; d++)
+            full_gembed[fv*dim + d] += compact_gembed[c*dim + d];
+    }
+}
+
+static void vocab_update_full(float *full_embed, const float *compact_embed, const VocabMap *vm, int dim) {
+    for (int c = 0; c < vm->compact_vocab; c++)
+        memcpy(full_embed + vm->compact_to_full[c]*dim, compact_embed + c*dim, dim*4);
+}
+
 // Embedding lookup: token_ids → x [DIM, SEQ] (channel-first)
 // embed is [VOCAB, DIM] row-major (vocab_size rows, dim cols)
 static void embed_lookup(float *x, const float *embed, const uint16_t *tokens, int dim, int seq) {
