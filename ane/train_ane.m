@@ -315,15 +315,6 @@ int main(int argc, char *argv[]) {
         printf("Token data: %zu tokens (%.1f MB) | train: %zu val: %zu\n",
                n_tokens, data_len/1e6, train_tokens, val_tokens);
 
-        // Vocab compaction
-        VocabMap vm = vocab_map_build(token_data, n_tokens, VOCAB);
-        int CV = vm.compact_vocab;
-        printf("Vocab compaction: %d → %d active tokens (%.1fx reduction)\n", VOCAB, CV, (float)VOCAB/CV);
-
-        float *cembed = vocab_compact_embed(embed, &vm, DIM);
-        float *gcembed = (float*)calloc((size_t)CV*DIM, 4);
-        AdamState acembed = adam_alloc((size_t)CV*DIM);
-
         // Precompute transposed weights for forward kernels
         float *Wqt_buf[NLAYERS], *Wkt_buf[NLAYERS], *Wvt_buf[NLAYERS], *Wot_buf[NLAYERS];
         float *W1t_buf[NLAYERS], *W3t_buf[NLAYERS];
@@ -398,8 +389,8 @@ int main(int argc, char *argv[]) {
         float *x_cur = (float*)malloc(SEQ*DIM*4);
         float *x_final = (float*)malloc(SEQ*DIM*4);
         float *xnorm_buf = (float*)malloc(SEQ*DIM*4);
-        float *logits = (float*)malloc(SEQ*CV*4);
-        float *dlogits = (float*)malloc(SEQ*CV*4);
+        float *logits = (float*)malloc(SEQ*VOCAB*4);
+        float *dlogits = (float*)malloc(SEQ*VOCAB*4);
         float *dh1 = (float*)malloc(SEQ*HIDDEN*4);
         float *dh3 = (float*)malloc(SEQ*HIDDEN*4);
         float *dsilu = (float*)malloc(SEQ*HIDDEN*4);
@@ -421,7 +412,6 @@ int main(int argc, char *argv[]) {
         for (int L=0; L<NLAYERS; L++) layer_grads_zero(&grads[L]);
         memset(grms_final, 0, DIM*4);
         memset(gembed, 0, (size_t)VOCAB*DIM*4);
-        memset(gcembed, 0, (size_t)CV*DIM*4);
 
         for (int step = start_step; step < total_steps; step++) {
             // Check wall-time budget
@@ -439,10 +429,6 @@ int main(int argc, char *argv[]) {
             size_t rpos = (size_t)(drand48() * max_pos);
             uint16_t *input_tokens = token_data + rpos;
             uint16_t *target_tokens_raw = token_data + rpos + 1;
-
-            // Compact target tokens for classifier
-            uint16_t ctargets[SEQ];
-            for (int t = 0; t < SEQ; t++) ctargets[t] = (uint16_t)vm.full_to_compact[target_tokens_raw[t]];
 
             // Embedding lookup
             embed_lookup(x_cur, embed, input_tokens, DIM, SEQ);
@@ -497,26 +483,26 @@ int main(int argc, char *argv[]) {
                 IOSurfaceUnlock(dk.ffnFused->ioOut, kIOSurfaceLockReadOnly, NULL);
             }
 
-            // Final RMSNorm + compact classifier + loss
+            // Final RMSNorm + classifier + loss
             rmsnorm(x_final, x_cur, rms_final, DIM, SEQ);
             cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
-                        CV, SEQ, DIM, 1.0f, cembed, DIM, x_final, SEQ, 0.0f, logits, SEQ);
-            logit_softcap(logits, CV * SEQ, SOFTCAP);
-            float loss = cross_entropy_loss(dlogits, logits, ctargets, CV, SEQ);
-            logit_softcap_bwd(dlogits, logits, CV * SEQ, SOFTCAP);
+                        VOCAB, SEQ, DIM, 1.0f, embed, DIM, x_final, SEQ, 0.0f, logits, SEQ);
+            logit_softcap(logits, VOCAB * SEQ, SOFTCAP);
+            float loss = cross_entropy_loss(dlogits, logits, target_tokens_raw, VOCAB, SEQ);
+            logit_softcap_bwd(dlogits, logits, VOCAB * SEQ, SOFTCAP);
             float ls = LOSS_SCALE;
-            vDSP_vsmul(dlogits, 1, &ls, dlogits, 1, (vDSP_Length)(SEQ*CV));
+            vDSP_vsmul(dlogits, 1, &ls, dlogits, 1, (vDSP_Length)(SEQ*VOCAB));
             last_loss = loss;
 
             // ===== BACKWARD =====
-            // Classifier backward (compact)
+            // Classifier backward
             cblas_sgemm(CblasRowMajor, CblasTrans, CblasNoTrans,
-                        DIM, SEQ, CV, 1.0f, cembed, DIM, dlogits, SEQ, 0.0f, dy, SEQ);
+                        DIM, SEQ, VOCAB, 1.0f, embed, DIM, dlogits, SEQ, 0.0f, dy, SEQ);
 
-            // dEmbed async (compact)
+            // dEmbed async
             dispatch_group_async(dw_grp, dw_q, ^{
                 cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasTrans,
-                            CV, DIM, SEQ, 1.0f, dlogits, SEQ, x_final, SEQ, 1.0f, gcembed, DIM);
+                            VOCAB, DIM, SEQ, 1.0f, dlogits, SEQ, x_final, SEQ, 1.0f, gembed, DIM);
             });
 
             // Final RMSNorm backward
@@ -684,8 +670,6 @@ int main(int argc, char *argv[]) {
                     for(int i=0;i<DIM;i++){g->rms_att[i]*=gsc; g->rms_ffn[i]*=gsc;}
                 }
                 for(int i=0;i<DIM;i++) grms_final[i]*=gsc;
-                // Scatter compact embed grads to full embed grads
-                vocab_scatter_grads(gembed, gcembed, &vm, DIM);
                 for(size_t i=0;i<(size_t)VOCAB*DIM;i++) gembed[i]*=gsc;
 
                 // Gradient clipping
@@ -741,15 +725,10 @@ int main(int argc, char *argv[]) {
                 adam_update(rms_final, grms_final, &arms_final, adam_t, scheduled_lr, adam_b1, adam_b2, adam_eps, 0.0f);
                 adam_update(embed, gembed, &aembed, adam_t, elr, adam_b1, adam_b2, adam_eps, 0.0f);
 
-                // Re-extract compact embedding
-                free(cembed);
-                cembed = vocab_compact_embed(embed, &vm, DIM);
-
                 // Zero grads
                 for (int L=0; L<NLAYERS; L++) layer_grads_zero(&grads[L]);
                 memset(grms_final, 0, DIM*4);
                 memset(gembed, 0, (size_t)VOCAB*DIM*4);
-                memset(gcembed, 0, (size_t)CV*DIM*4);
             }
         }
 
@@ -765,9 +744,6 @@ int main(int argc, char *argv[]) {
             for (int w = 0; w < VAL_WINDOWS && vpos + val_stride <= n_tokens; w++, vpos += val_stride) {
                 uint16_t *vinput = token_data + vpos;
                 uint16_t *vtarget_raw = token_data + vpos + 1;
-                uint16_t vctargets[SEQ];
-                for (int t = 0; t < SEQ; t++) vctargets[t] = (uint16_t)vm.full_to_compact[vtarget_raw[t]];
-
                 embed_lookup(x_cur, embed, vinput, DIM, SEQ);
                 for (int L=0; L<NLAYERS; L++) {
                     rmsnorm(xnorm_buf, x_cur, lw[L].rms_att, DIM, SEQ);
@@ -790,8 +766,8 @@ int main(int argc, char *argv[]) {
                 }
                 rmsnorm(x_final, x_cur, rms_final, DIM, SEQ);
                 cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
-                            CV, SEQ, DIM, 1.0f, cembed, DIM, x_final, SEQ, 0.0f, logits, SEQ);
-                float wloss = cross_entropy_loss(dlogits, logits, vctargets, CV, SEQ);
+                            VOCAB, SEQ, DIM, 1.0f, embed, DIM, x_final, SEQ, 0.0f, logits, SEQ);
+                float wloss = cross_entropy_loss(dlogits, logits, vtarget_raw, VOCAB, SEQ);
                 total_val_loss += wloss;
                 n_windows++;
             }
@@ -849,8 +825,6 @@ int main(int argc, char *argv[]) {
         munmap(token_data, data_len); close(data_fd);
         free(rms_final); free(embed); free(grms_final); free(gembed);
         adam_free(&arms_final); adam_free(&aembed);
-        free(cembed); free(gcembed); adam_free(&acembed);
-        free(vm.full_to_compact); free(vm.compact_to_full);
         free(dy); free(dffn); free(dx_ffn); free(dx2); free(dx_attn);
         free(dq); free(dk_buf); free(dv); free(da_buf);
         free(x_cur); free(x_final); free(xnorm_buf);
