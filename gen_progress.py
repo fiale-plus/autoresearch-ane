@@ -50,6 +50,7 @@ for r in rows:
             best_so_far = r['val_loss']
             running_best_x.append(r['run'])
             running_best_y.append(best_so_far)
+running_best_runs = set(running_best_x)
 
 # Extend running best as staircase
 staircase_x = []
@@ -81,9 +82,11 @@ ax.scatter([r['run'] for r in keeps], [r['val_loss'] for r in keeps],
 # Running best staircase
 ax.plot(staircase_x, staircase_y, c='#2ecc71', linewidth=2, zorder=2, label='Running best', alpha=0.8)
 
-# Label kept experiments (angled text)
+# Label only running-best experiments (skip regressions above the staircase)
 labeled = set()
 for r in keeps:
+    if r['run'] not in running_best_runs:
+        continue
     # Shorten description for label
     desc = r['desc']
     # Remove common prefixes
