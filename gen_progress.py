@@ -81,10 +81,6 @@ ax.scatter([r['run'] for r in keeps], [r['val_loss'] for r in keeps],
 # Running best staircase
 ax.plot(staircase_x, staircase_y, c='#2ecc71', linewidth=2, zorder=2, label='Running best', alpha=0.8)
 
-# ncdrone reference line
-ax.axhline(y=5.81, color='#e67e22', linewidth=1, linestyle='--', alpha=0.7, zorder=1)
-ax.text(rows[-1]['run'] + 0.5, 5.82, 'ncdrone ref: 5.81', fontsize=8, color='#e67e22', va='bottom')
-
 # Label kept experiments (angled text)
 labeled = set()
 for r in keeps:
@@ -95,8 +91,8 @@ for r in keeps:
         if desc.startswith(prefix):
             desc = desc[len(prefix):]
     # Truncate
-    if len(desc) > 45:
-        desc = desc[:42] + '...'
+    if len(desc) > 40:
+        desc = desc[:37] + '...'
 
     # Avoid overlapping labels — skip if too close to a previously labeled point
     skip = False
@@ -110,14 +106,15 @@ for r in keeps:
 
     ax.annotate(desc, (r['run'], r['val_loss']),
                 textcoords='offset points', xytext=(6, 8),
-                fontsize=6.5, color='#555555', rotation=25,
-                ha='left', va='bottom')
+                fontsize=6, color='#555555', rotation=30,
+                ha='left', va='bottom',
+                annotation_clip=True)
 
 # Formatting
 total_kept = len(keeps)
 total_exp = len(rows)
 ax.set_title(f'ANE Autoresearch Progress: {total_exp} Experiments, {total_kept} Kept Improvements',
-             fontsize=13, fontweight='bold', pad=12)
+             fontsize=13, fontweight='bold', pad=20)
 ax.set_xlabel('Experiment #', fontsize=11)
 ax.set_ylabel('Validation Loss (lower is better)', fontsize=11)
 ax.legend(loc='upper right', fontsize=9, framealpha=0.9)
@@ -125,9 +122,13 @@ ax.grid(True, alpha=0.3, linewidth=0.5)
 ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)
 
+# Add right margin so labels don't clip
+ax.set_xlim(left=-0.5, right=rows[-1]['run'] + 4)
+
 # Y-axis: show more decimal places
 ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
 
 plt.tight_layout()
+plt.subplots_adjust(top=0.90)
 plt.savefig(OUT, dpi=150, bbox_inches='tight', facecolor='white')
 print(f'Saved {OUT} ({OUT.stat().st_size / 1024:.0f} KB)')
