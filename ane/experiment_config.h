@@ -12,7 +12,7 @@
 #define ADAM_EPS 1e-8f
 #define ACCUM_STEPS 1
 #define GRAD_CLIP_MAX 1.0f
-#define WEIGHT_DECAY 0.1f
+#define WEIGHT_DECAY 0.2f
 #define WARMDOWN_RATIO 0.3f
 // Reference: ncdrone/autoresearch-ANE achieved val_loss=5.81 with NL=6 SEQ=512
 // Key finding: "more steps > bigger model" — fewer layers = faster steps = more training
