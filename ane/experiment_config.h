@@ -7,8 +7,8 @@
 #define NLAYERS 6
 // Optimizer (safe to change between runs)
 #define LEARNING_RATE 3e-4f
-#define ADAM_BETA1 0.8f
-#define ADAM_BETA2 0.95f
+#define ADAM_BETA1 0.9f
+#define ADAM_BETA2 0.999f
 #define ADAM_EPS 1e-8f
 #define ACCUM_STEPS 4
 #define GRAD_CLIP_MAX 1.0f
