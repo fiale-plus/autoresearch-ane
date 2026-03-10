@@ -109,9 +109,9 @@ for r in keeps:
     labeled.add((r['run'], r['val_loss']))
 
     ax.annotate(desc, (r['run'], r['val_loss']),
-                textcoords='offset points', xytext=(8, -5),
+                textcoords='offset points', xytext=(6, 8),
                 fontsize=6.5, color='#555555', rotation=25,
-                ha='left', va='top')
+                ha='left', va='bottom')
 
 # Formatting
 total_kept = len(keeps)
