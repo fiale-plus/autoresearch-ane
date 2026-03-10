@@ -577,9 +577,8 @@ int main(int argc, char *argv[]) {
 
             dispatch_group_wait(dw_grp, DISPATCH_TIME_FOREVER);
 
-            // Adam update
+            // Gradient averaging
             float gsc = 1.0f / steps_batch;
-            adam_t++;
             for (int L=0; L<NLAYERS; L++) {
                 LayerGrads *g = &grads[L];
                 for(size_t i=0;i<WQ_SZ;i++){g->Wq[i]*=gsc;g->Wk[i]*=gsc;g->Wv[i]*=gsc;g->Wo[i]*=gsc;}
@@ -587,27 +586,42 @@ int main(int argc, char *argv[]) {
                 for(size_t i=0;i<W2_SZ;i++) g->W2[i]*=gsc;
                 for(size_t i=0;i<W3_SZ;i++) g->W3[i]*=gsc;
                 for(int i=0;i<DIM;i++){g->rms_att[i]*=gsc; g->rms_ffn[i]*=gsc;}
-
-                adam_update(lw[L].Wq, g->Wq, &la[L].Wq, adam_t, lr, adam_b1, adam_b2, adam_eps);
-                adam_update(lw[L].Wk, g->Wk, &la[L].Wk, adam_t, lr, adam_b1, adam_b2, adam_eps);
-                adam_update(lw[L].Wv, g->Wv, &la[L].Wv, adam_t, lr, adam_b1, adam_b2, adam_eps);
-                adam_update(lw[L].Wo, g->Wo, &la[L].Wo, adam_t, lr, adam_b1, adam_b2, adam_eps);
-                adam_update(lw[L].W1, g->W1, &la[L].W1, adam_t, lr, adam_b1, adam_b2, adam_eps);
-                adam_update(lw[L].W2, g->W2, &la[L].W2, adam_t, lr, adam_b1, adam_b2, adam_eps);
-                adam_update(lw[L].W3, g->W3, &la[L].W3, adam_t, lr, adam_b1, adam_b2, adam_eps);
-                adam_update(lw[L].rms_att, g->rms_att, &la[L].rms_att, adam_t, lr, adam_b1, adam_b2, adam_eps);
-                adam_update(lw[L].rms_ffn, g->rms_ffn, &la[L].rms_ffn, adam_t, lr, adam_b1, adam_b2, adam_eps);
             }
             for(int i=0;i<DIM;i++) grms_final[i]*=gsc;
-            adam_update(rms_final, grms_final, &arms_final, adam_t, lr, adam_b1, adam_b2, adam_eps);
             for(size_t i=0;i<(size_t)VOCAB*DIM;i++) gembed[i]*=gsc;
 
-            // Gradient clipping
+            // Gradient clipping (before Adam update)
             float gnorm = clip_gradients(grads, grms_final, gembed, GRAD_CLIP_MAX);
             if (gnorm > GRAD_CLIP_MAX)
                 printf("  [grad clip: %.2f → %.2f]\n", gnorm, GRAD_CLIP_MAX);
 
-            adam_update(embed, gembed, &aembed, adam_t, lr, adam_b1, adam_b2, adam_eps);
+            // LR warmdown schedule
+            double elapsed_s = (tb_ms(mach_absolute_time() - t_wall_start) + cum_wall) / 1000.0;
+            double progress = elapsed_s / wall_time_budget;
+            float scheduled_lr = lr;
+            if (WARMDOWN_RATIO > 0 && progress > (1.0 - WARMDOWN_RATIO)) {
+                float cooldown = (float)((1.0 - progress) / WARMDOWN_RATIO);
+                if (cooldown < 0) cooldown = 0;
+                scheduled_lr = lr * cooldown;
+            }
+
+            // Adam update with weight decay + scheduled LR
+            adam_t++;
+            float wd = WEIGHT_DECAY;
+            for (int L=0; L<NLAYERS; L++) {
+                LayerGrads *g = &grads[L];
+                adam_update(lw[L].Wq, g->Wq, &la[L].Wq, adam_t, scheduled_lr, adam_b1, adam_b2, adam_eps, wd);
+                adam_update(lw[L].Wk, g->Wk, &la[L].Wk, adam_t, scheduled_lr, adam_b1, adam_b2, adam_eps, wd);
+                adam_update(lw[L].Wv, g->Wv, &la[L].Wv, adam_t, scheduled_lr, adam_b1, adam_b2, adam_eps, wd);
+                adam_update(lw[L].Wo, g->Wo, &la[L].Wo, adam_t, scheduled_lr, adam_b1, adam_b2, adam_eps, wd);
+                adam_update(lw[L].W1, g->W1, &la[L].W1, adam_t, scheduled_lr, adam_b1, adam_b2, adam_eps, wd);
+                adam_update(lw[L].W2, g->W2, &la[L].W2, adam_t, scheduled_lr, adam_b1, adam_b2, adam_eps, wd);
+                adam_update(lw[L].W3, g->W3, &la[L].W3, adam_t, scheduled_lr, adam_b1, adam_b2, adam_eps, wd);
+                adam_update(lw[L].rms_att, g->rms_att, &la[L].rms_att, adam_t, scheduled_lr, adam_b1, adam_b2, adam_eps, 0.0f);
+                adam_update(lw[L].rms_ffn, g->rms_ffn, &la[L].rms_ffn, adam_t, scheduled_lr, adam_b1, adam_b2, adam_eps, 0.0f);
+            }
+            adam_update(rms_final, grms_final, &arms_final, adam_t, scheduled_lr, adam_b1, adam_b2, adam_eps, 0.0f);
+            adam_update(embed, gembed, &aembed, adam_t, scheduled_lr, adam_b1, adam_b2, adam_eps, 0.0f);
 
             printf("  [batch %d: compile=%.0fms train=%.1fms (%.1fms/step) compiles=%d]\n",
                    steps_batch, cms, tms, tms/steps_batch, g_compile_count);

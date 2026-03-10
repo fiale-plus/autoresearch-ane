@@ -52,9 +52,10 @@ static void rmsnorm_bwd(float *dx, float *dw, const float *dy, const float *x, c
     free(ss); free(rrms); free(dot); free(rms_tmp);
 }
 
-static void adam_update(float *w, const float *g, AdamState *s, int t, float lr, float b1, float b2, float eps) {
+static void adam_update(float *w, const float *g, AdamState *s, int t, float lr, float b1, float b2, float eps, float wd) {
     float bc1 = 1.0f - powf(b1, t), bc2 = 1.0f - powf(b2, t);
     for (size_t i=0; i<s->n; i++) {
+        if (wd > 0) w[i] -= wd * lr * w[i];  // decoupled weight decay (AdamW)
         s->m[i] = b1*s->m[i] + (1-b1)*g[i];
         s->v[i] = b2*s->v[i] + (1-b2)*g[i]*g[i];
         float mh = s->m[i]/bc1, vh = s->v[i]/bc2;
