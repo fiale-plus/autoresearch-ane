@@ -95,8 +95,7 @@ ax.legend(handles=legend, fontsize=10, loc='upper right',
 valid_ys = [y for y in ys if y < 8]
 if valid_ys:
     ymin, ymax = min(valid_ys), max(valid_ys)
-    pad = (ymax - ymin) * 0.08
-    ax.set_ylim(ymin - pad, ymax + pad)
+    ax.set_ylim(ymin - (ymax - ymin) * 0.05, ymax + (ymax - ymin) * 0.35)
 
 plt.tight_layout()
 plt.savefig('progress.png', dpi=150, bbox_inches='tight', facecolor='white')
