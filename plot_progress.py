@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate progress.png from results.tsv — matches original chart style"""
+"""Generate progress.png from results.tsv"""
 import csv
 import matplotlib
 matplotlib.use('Agg')
@@ -12,7 +12,7 @@ with open('results.tsv') as f:
     for r in reader:
         v = float(r['val_loss'])
         s = r['status'].strip()
-        if s == 'crash' or v >= 10:
+        if v <= 0 or v >= 10:
             continue
         rows.append({
             'val_loss': v,
@@ -21,64 +21,83 @@ with open('results.tsv') as f:
         })
 
 n = len(rows)
-xs = list(range(1, n + 1))
+xs = list(range(len(rows)))
 ys = [r['val_loss'] for r in rows]
 
-# Running best (keeps only)
+# Running best (keeps only) — step line connecting kept improvements
 best_x, best_y = [], []
 best = float('inf')
 for i, r in enumerate(rows):
     if r['status'] == 'keep' and r['val_loss'] < best:
         best = r['val_loss']
     if r['status'] == 'keep':
-        best_x.append(i + 1)
+        best_x.append(i)
         best_y.append(best)
 
-fig, ax = plt.subplots(figsize=(10, 5))
+# Light gray background style
+fig, ax = plt.subplots(figsize=(14, 7))
+fig.patch.set_facecolor('white')
+ax.set_facecolor('#fafafa')
+
+# Grid — very light, y-axis only
+ax.grid(axis='y', color='#e0e0e0', linewidth=0.5)
+ax.grid(axis='x', visible=False)
 
 # Running best step line
 if best_x:
-    ax.step(best_x, best_y, where='post', color='#2ecc71', linewidth=2,
-            alpha=0.8, label='Running best')
+    ax.step(best_x, best_y, where='post', color='#2ecc71', linewidth=1.8,
+            alpha=0.7, label='Running best', zorder=3)
 
-# Scatter: green keeps, gray discards
+# Scatter: green keeps (larger), gray discards (smaller, lighter)
 for x, y, r in zip(xs, ys, rows):
-    color = '#2ecc71' if r['status'] == 'keep' else '#cccccc'
-    edge = 'white' if r['status'] == 'keep' else '#999999'
-    size = 80 if r['status'] == 'keep' else 40
-    ax.scatter(x, y, color=color, s=size, zorder=5, edgecolors=edge, linewidths=0.5)
+    if r['status'] == 'keep':
+        ax.scatter(x, y, color='#2ecc71', s=70, zorder=5,
+                   edgecolors='white', linewidths=0.5)
+    else:
+        ax.scatter(x, y, color='#cccccc', s=30, zorder=4,
+                   edgecolors='#bbbbbb', linewidths=0.3, alpha=0.7)
 
-# Annotate running-best keeps only
+# Annotate only running-best keeps (new records)
 prev_best = float('inf')
 for x, y, r in zip(xs, ys, rows):
     if r['status'] == 'keep' and r['val_loss'] < prev_best:
         prev_best = r['val_loss']
         short = r['desc'].split('(')[0].strip()
-        if len(short) > 40:
-            short = short[:37] + '...'
+        if len(short) > 45:
+            short = short[:42] + '...'
         ax.annotate(short, (x, y), textcoords='offset points',
-                    xytext=(6, 6), fontsize=6.5, color='#555555',
-                    ha='left', va='bottom')
-
-# Best line
-best_val = min(ys)
-ax.axhline(best_val, color='#2ecc71', linewidth=0.6, linestyle=':', alpha=0.5)
-ax.text(n + 0.5, best_val, f' {best_val:.3f}', fontsize=8, color='#2ecc71', va='center')
+                    xytext=(5, 5), fontsize=7, color='#888888',
+                    ha='left', va='bottom', rotation=0)
 
 n_kept = sum(1 for r in rows if r['status'] == 'keep')
-ax.set_xlabel('Experiment #', fontsize=11)
-ax.set_ylabel('Validation Loss (lower is better)', fontsize=11)
+ax.set_xlabel('Experiment #', fontsize=12, color='#555555')
+ax.set_ylabel('Validation Loss (lower is better)', fontsize=12, color='#555555')
 ax.set_title(f'ANE Autoresearch Progress: {n} Experiments, {n_kept} Kept Improvements',
-             fontsize=13, pad=12)
-ax.grid(axis='y', alpha=0.3)
+             fontsize=14, fontweight='bold', color='#333333', pad=15)
+
+# Clean spines
+for spine in ['top', 'right']:
+    ax.spines[spine].set_visible(False)
+for spine in ['bottom', 'left']:
+    ax.spines[spine].set_color('#cccccc')
+
+ax.tick_params(colors='#888888', labelsize=10)
 
 legend = [
     mpatches.Patch(color='#cccccc', label='Discarded'),
     mpatches.Patch(color='#2ecc71', label='Kept'),
-    plt.Line2D([0], [0], color='#2ecc71', linewidth=2, label='Running best'),
+    plt.Line2D([0], [0], color='#2ecc71', linewidth=1.8, alpha=0.7, label='Running best'),
 ]
-ax.legend(handles=legend, fontsize=9, loc='upper right')
+ax.legend(handles=legend, fontsize=10, loc='upper right',
+          framealpha=0.9, edgecolor='#dddddd')
+
+# Tight y-axis: show range of actual progress with some padding
+valid_ys = [y for y in ys if y < 8]
+if valid_ys:
+    ymin, ymax = min(valid_ys), max(valid_ys)
+    pad = (ymax - ymin) * 0.08
+    ax.set_ylim(ymin - pad, ymax + pad)
 
 plt.tight_layout()
-plt.savefig('progress.png', dpi=200, bbox_inches='tight')
-print(f'Saved progress.png ({n} experiments, best={best_val:.4f})')
+plt.savefig('progress.png', dpi=150, bbox_inches='tight', facecolor='white')
+print(f'Saved progress.png ({n} experiments, best={min(ys):.4f})')

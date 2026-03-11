@@ -24,5 +24,5 @@
 // Logit softcapping: cap * tanh(logits/cap), prevents logit explosion
 #define SOFTCAP 15.0f
 // Differential learning rates (ncdrone: embed 5x faster, matrices 20x slower)
-#define EMBED_LR_SCALE 5.0f
+#define EMBED_LR_SCALE 2.0f
 #define MATRIX_LR_SCALE 0.05f
