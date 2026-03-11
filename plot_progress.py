@@ -67,7 +67,7 @@ for x, y, r in zip(xs, ys, rows):
             short = short[:42] + '...'
         ax.annotate(short, (x, y), textcoords='offset points',
                     xytext=(5, 5), fontsize=7, color='#888888',
-                    ha='left', va='bottom', rotation=0)
+                    ha='left', va='bottom', rotation=45)
 
 n_kept = sum(1 for r in rows if r['status'] == 'keep')
 ax.set_xlabel('Experiment #', fontsize=12, color='#555555')
