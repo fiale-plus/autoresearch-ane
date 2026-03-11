@@ -95,7 +95,7 @@ This fork adds an **ANE training backend** that runs transformer training direct
 
 ### Current best results
 
-**val_loss = 3.55** (~56 autonomous experiment cycles, ~67M param model, 5-min budget)
+**val_loss = 3.165** (~96 autonomous experiment cycles, ~67M param model, 5-min budget)
 
 Starting from 6.109 baseline, key improvements discovered through autonomous experimentation:
 
@@ -107,10 +107,12 @@ Starting from 6.109 baseline, key improvements discovered through autonomous exp
 | + ncdrone optimizer | Loss scaling, softcap, diff LR, cosine sched | 5.023 | ~120 |
 | | Extended training (15 min) | 4.836 | ~120 |
 | **Dynamic pipeline** | **One-time compile, no recompilation** | **3.89** | **~1340** |
-| | Continued training + ACCUM tuning | **3.68** | **~1340** |
-| | EMBED_LR_SCALE=2.0 (reduce embed LR near plateau) | **3.55** | **~1340** |
+| | EMBED_LR_SCALE=2.0 (reduce embed LR) | 3.49 | ~1140 |
+| | ACCUM ramp 2→4→6→8→10 (gradient smoothing) | **3.165** | **~1500** |
 
-The dynamic weight pipeline was the single biggest improvement: eliminating per-batch recompilation turned ~60% of wall time from compilation into training, yielding 11x more steps per 5-minute budget.
+Key discoveries:
+- **Dynamic weight pipeline** was the single biggest improvement: eliminating per-batch recompilation turned ~60% of wall time from compilation into training, yielding 11x more steps per 5-minute budget.
+- **ACCUM ramping**: start with low ACCUM (noisy but fast) for early training, then progressively increase ACCUM as the model approaches convergence — smoother gradients matter more at lower loss.
 
 ### Hyperparameters
 
@@ -134,14 +136,14 @@ The agent edits `ane/experiment_config.h`. All hyperparameters and their current
 | `ADAM_BETA1` | 0.9f | First moment decay |
 | `ADAM_BETA2` | 0.95f | Second moment decay (ncdrone uses 0.95 vs default 0.999) |
 | `ADAM_EPS` | 1e-8f | Adam epsilon |
-| `ACCUM_STEPS` | 4 | Gradient accumulation steps per Adam update + weight re-staging (~50ms) |
+| `ACCUM_STEPS` | 10 | Gradient accumulation steps per Adam update + weight re-staging (~50ms). Ramp up during training for smoother gradients |
 | `GRAD_CLIP_MAX` | 1.0f | Global L2 gradient norm clip threshold |
 | `WEIGHT_DECAY` | 0.2f | Decoupled weight decay (AdamW). Applied only to weight matrices, not embeddings or RMSNorm |
 | `LR_WARMUP_STEPS` | 100 | Linear warmup steps before cosine decay |
 | `LR_MIN_FRAC` | 0.1f | Cosine schedule decays LR to this fraction of max |
 | `LOSS_SCALE` | 256.0f | Loss scaling factor — prevents FP16 gradient underflow. Undone during gradient averaging |
 | `SOFTCAP` | 15.0f | Logit softcapping: `cap * tanh(logits/cap)`, clamps logits to [-cap, cap] to prevent explosion |
-| `EMBED_LR_SCALE` | 5.0f | Embedding LR = base LR × this (embeddings learn faster) |
+| `EMBED_LR_SCALE` | 2.0f | Embedding LR = base LR × this (embeddings learn faster, 5.0 too aggressive) |
 | `MATRIX_LR_SCALE` | 0.05f | Weight matrix LR = base LR × this (matrices learn slower) |
 
 **Optimizer features** (from maderix/ANE + ncdrone research):
@@ -151,7 +153,7 @@ The agent edits `ane/experiment_config.h`. All hyperparameters and their current
 - **Cosine LR schedule** — linear warmup for `LR_WARMUP_STEPS`, then cosine decay to `LR_MIN_FRAC` of max LR
 - **Loss scaling (256×)** — scales gradients up before FP16 backward pass, undone during gradient averaging. Prevents underflow that causes the 5.5 plateau (maderix)
 - **Logit softcapping** — `cap * tanh(logits/cap)` before softmax with chain-rule correction in backward. Prevents logit explosion during training
-- **Differential learning rates** — embeddings at 5× base LR, weight matrices at 0.05× base LR, norm params at 1× base LR (ncdrone)
+- **Differential learning rates** — embeddings at 2× base LR, weight matrices at 0.05× base LR, norm params at 1× base LR (tuned from ncdrone's 5×/0.05×)
 - **Residual scaling** — residual connections scaled by `1/sqrt(2*NLAYERS)` to stabilize deep residual streams
 
 ### Differences from the CUDA backend
