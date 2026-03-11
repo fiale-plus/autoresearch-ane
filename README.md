@@ -95,7 +95,7 @@ This fork adds an **ANE training backend** that runs transformer training direct
 
 ### Current best results
 
-**val_loss = 3.68** (~50 autonomous experiment cycles, ~67M param model, 5-min budget)
+**val_loss = 3.55** (~56 autonomous experiment cycles, ~67M param model, 5-min budget)
 
 Starting from 6.109 baseline, key improvements discovered through autonomous experimentation:
 
@@ -108,6 +108,7 @@ Starting from 6.109 baseline, key improvements discovered through autonomous exp
 | | Extended training (15 min) | 4.836 | ~120 |
 | **Dynamic pipeline** | **One-time compile, no recompilation** | **3.89** | **~1340** |
 | | Continued training + ACCUM tuning | **3.68** | **~1340** |
+| | EMBED_LR_SCALE=2.0 (reduce embed LR near plateau) | **3.55** | **~1340** |
 
 The dynamic weight pipeline was the single biggest improvement: eliminating per-batch recompilation turned ~60% of wall time from compilation into training, yielding 11x more steps per 5-minute budget.
 
