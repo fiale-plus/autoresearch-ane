@@ -89,27 +89,27 @@ This fork adds an **ANE training backend** that runs transformer training direct
 - Uses TinyStories dataset with Llama2 32K BPE tokenizer (ANE's native data format)
 - **Dynamic weight pipeline**: 10 ANE kernels are compiled once at startup (~470ms). Weights are passed via IOSurface spatial dimensions using `slice_by_size`, not baked into kernels — no recompilation during training
 - After each Adam update, weights are transposed and re-staged to per-layer IOSurfaces (~50ms)
-- **Vocab compaction**: only ~9K of 32K tokens appear in TinyStories, so classifier SGEMM is ~3.5x smaller
 - **Scaled initialization**: Wo and W2 weights initialized with `1/sqrt(2*NLAYERS)` residual scaling
 - Metric is `val_loss` (cross-entropy), not `val_bpb` — experiments are compared within this framework
 - Agent edits only `ane/experiment_config.h` (architecture + optimizer hyperparameters)
 
 ### Current best results
 
-**val_loss = 5.455** (35 autonomous experiment cycles, ~67M param model)
+**val_loss = 3.68** (~50 autonomous experiment cycles, ~67M param model, 5-min budget)
 
-Starting from 6.109 baseline, the agent discovered these improvements through autonomous experimentation:
+Starting from 6.109 baseline, key improvements discovered through autonomous experimentation:
 
-| Change | val_loss | Improvement |
-|---|---|---|
-| Baseline (NL=12, SEQ=256) | 6.109 | — |
-| LR=1e-3, ACCUM=4 | 6.098 | -0.011 |
-| NL=6, SEQ=512 (ncdrone arch) | 6.074 | -0.035 |
-| ACCUM=1 (max weight updates) | 5.978 | -0.131 |
-| Adam betas (0.8, 0.95) | 5.849 | -0.260 |
-| WARMDOWN_RATIO=0.3 | 5.737 | -0.372 |
-| WD=0.2 | 5.672 | -0.437 |
-| Extended training + anneal cycles | **5.455** | **-0.654** |
+| Phase | Change | val_loss | Steps/5min |
+|---|---|---|---|
+| Static kernels | Baseline (NL=12, SEQ=256) | 6.109 | ~400 |
+| | NL=6, SEQ=512 + ACCUM=1 | 5.978 | ~120 |
+| | Optimizer tuning (betas, WD, anneal cycles) | 5.414 | ~60 |
+| + ncdrone optimizer | Loss scaling, softcap, diff LR, cosine sched | 5.023 | ~120 |
+| | Extended training (15 min) | 4.836 | ~120 |
+| **Dynamic pipeline** | **One-time compile, no recompilation** | **3.89** | **~1340** |
+| | Continued training + ACCUM tuning | **3.68** | **~1340** |
+
+The dynamic weight pipeline was the single biggest improvement: eliminating per-batch recompilation turned ~60% of wall time from compilation into training, yielding 11x more steps per 5-minute budget.
 
 ### Hyperparameters
 
