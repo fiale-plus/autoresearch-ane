@@ -84,7 +84,7 @@ static void io_write_fp16_at(IOSurfaceRef s, int ch_off, const float *data, int 
 }
 
 // Spatial sizes for dynamic kernels (weights packed after activations in spatial dim)
-#define SDPA_FWD_SP    (SEQ + 3*DIM)       // xnorm + Wq^T + Wk^T + Wv^T
+#define SDPA_FWD_SP    (SEQ + DIM + 2*KV_DIM)  // xnorm + Wq^T + Wk^T + Wv^T (GQA: KV_DIM <= DIM)
 #define WO_FWD_SP      (SEQ + DIM)          // attn_out + Wo^T
 #define FFN_FUSED_SP   (2*SEQ + 3*HIDDEN)   // x2norm + x2 + W1^T + W3^T + W2
 #define FFN_BWD_W2T_SP (SEQ + HIDDEN)       // dffn + W2
@@ -92,6 +92,10 @@ static void io_write_fp16_at(IOSurfaceRef s, int ch_off, const float *data, int 
 #define WOT_BWD_SP     (SEQ + DIM)          // dy + Wo
 #define Q_BWD_SP       (SEQ + DIM)          // dq + Wq
 #define KV_BWD_SP      (2*SEQ + 2*DIM)      // dk + dv + Wk + Wv
+#define SDPA_WO_FWD_SP  (SEQ + 2*DIM + 2*KV_DIM)  // xnorm + Wq + Wk + Wv + Wo
+#define SDPA_WO_FWD_OUT_CH (3*DIM + 2*KV_DIM)       // o_out + attn_out + Q + K + V
+#define QKV_BWD_SP      (3*SEQ + 3*DIM)             // dq + dk + dv + Wq + Wk + Wv (MHA only)
+#define SDPA_BWD_FUSED_OUT_CH (DIM + 2*KV_DIM)      // dQ + dK + dV
 
 // fp16 IOSurface I/O for dynamic matmul kernels
 static void io_write_dyn(IOSurfaceRef s, const float *act, int ic, int seq,
@@ -178,14 +182,15 @@ static void *make_request(Kern *k, IOSurfaceRef ioIn) {
 
 // ===== Per-layer weight staging (MHA: Q_DIM=KV_DIM=DIM) =====
 
-// sdpaFwd: [1, DIM, 1, SEQ+3*DIM] — xnorm + Wq^T + Wk^T + Wv^T
+// sdpaFwd: [1, DIM, 1, SEQ+DIM+2*KV_DIM] — xnorm + Wq^T + Wk^T + Wv^T
+// GQA: Wk^T is [DIM, KV_DIM], Wv^T is [DIM, KV_DIM]
 static void stage_sdpa_fwd_weights(IOSurfaceRef s, const float *Wqt, const float *Wkt, const float *Wvt) {
     IOSurfaceLock(s, 0, NULL);
     _Float16 *buf = (_Float16*)IOSurfaceGetBaseAddress(s);
     for (int d = 0; d < DIM; d++) {
-        cvt_f32_f16(buf + d*SDPA_FWD_SP + SEQ,         Wqt + d*DIM, DIM);
-        cvt_f32_f16(buf + d*SDPA_FWD_SP + SEQ+DIM,     Wkt + d*DIM, DIM);
-        cvt_f32_f16(buf + d*SDPA_FWD_SP + SEQ+2*DIM,   Wvt + d*DIM, DIM);
+        cvt_f32_f16(buf + d*SDPA_FWD_SP + SEQ,                Wqt + d*DIM, DIM);
+        cvt_f32_f16(buf + d*SDPA_FWD_SP + SEQ+DIM,            Wkt + d*KV_DIM, KV_DIM);
+        cvt_f32_f16(buf + d*SDPA_FWD_SP + SEQ+DIM+KV_DIM,     Wvt + d*KV_DIM, KV_DIM);
     }
     IOSurfaceUnlock(s, 0, NULL);
 }
@@ -303,11 +308,12 @@ static void write_q_bwd_acts(IOSurfaceRef s, const float *dq) {
     IOSurfaceUnlock(s, 0, NULL);
 }
 
-// kvBwd: [1, DIM, 1, 2*SEQ+2*DIM] — dk + dv + Wk + Wv (originals)
+// kvBwd: [1, KV_DIM, 1, 2*SEQ+2*DIM] — dk + dv + Wk + Wv (originals)
+// GQA: channels=KV_DIM (may be < DIM), spatial=2*SEQ+2*DIM unchanged
 static void stage_kv_bwd_weights(IOSurfaceRef s, const float *Wk, const float *Wv) {
     IOSurfaceLock(s, 0, NULL);
     _Float16 *buf = (_Float16*)IOSurfaceGetBaseAddress(s);
-    for (int d = 0; d < DIM; d++) {
+    for (int d = 0; d < KV_DIM; d++) {
         cvt_f32_f16(buf + d*KV_BWD_SP + 2*SEQ,       Wk + d*DIM, DIM);
         cvt_f32_f16(buf + d*KV_BWD_SP + 2*SEQ + DIM, Wv + d*DIM, DIM);
     }
@@ -316,11 +322,57 @@ static void stage_kv_bwd_weights(IOSurfaceRef s, const float *Wk, const float *W
 static void write_kv_bwd_acts(IOSurfaceRef s, const float *dk, const float *dv) {
     IOSurfaceLock(s, 0, NULL);
     _Float16 *buf = (_Float16*)IOSurfaceGetBaseAddress(s);
-    for (int d = 0; d < DIM; d++) {
+    for (int d = 0; d < KV_DIM; d++) {
         cvt_f32_f16(buf + d*KV_BWD_SP,       dk + d*SEQ, SEQ);
         cvt_f32_f16(buf + d*KV_BWD_SP + SEQ, dv + d*SEQ, SEQ);
     }
     IOSurfaceUnlock(s, 0, NULL);
+}
+
+// ===== Fused kernel IO staging =====
+
+// sdpaWoFwd: [1, DIM, 1, SDPA_WO_FWD_SP] — xnorm + Wq^T + Wk^T + Wv^T + Wo^T
+static void stage_sdpa_wo_fwd_weights(IOSurfaceRef surf, const float *Wqt, const float *Wkt, const float *Wvt, const float *Wot) {
+    IOSurfaceLock(surf, 0, NULL);
+    _Float16 *buf = (_Float16*)IOSurfaceGetBaseAddress(surf);
+    for (int d = 0; d < DIM; d++) {
+        cvt_f32_f16(buf + d*SDPA_WO_FWD_SP + SEQ,                Wqt + d*DIM, DIM);
+        cvt_f32_f16(buf + d*SDPA_WO_FWD_SP + SEQ+DIM,            Wkt + d*KV_DIM, KV_DIM);
+        cvt_f32_f16(buf + d*SDPA_WO_FWD_SP + SEQ+DIM+KV_DIM,     Wvt + d*KV_DIM, KV_DIM);
+        cvt_f32_f16(buf + d*SDPA_WO_FWD_SP + SEQ+DIM+2*KV_DIM,   Wot + d*DIM, DIM);
+    }
+    IOSurfaceUnlock(surf, 0, NULL);
+}
+
+static void write_sdpa_wo_fwd_acts(IOSurfaceRef surf, const float *xnorm) {
+    IOSurfaceLock(surf, 0, NULL);
+    _Float16 *buf = (_Float16*)IOSurfaceGetBaseAddress(surf);
+    for (int d = 0; d < DIM; d++)
+        cvt_f32_f16(buf + d*SDPA_WO_FWD_SP, xnorm + d*SEQ, SEQ);
+    IOSurfaceUnlock(surf, 0, NULL);
+}
+
+// qkvBwd: [1, DIM, 1, QKV_BWD_SP] — dq + dk + dv + Wq + Wk + Wv (MHA: all DIM channels)
+static void stage_qkv_bwd_weights(IOSurfaceRef surf, const float *Wq, const float *Wk, const float *Wv) {
+    IOSurfaceLock(surf, 0, NULL);
+    _Float16 *buf = (_Float16*)IOSurfaceGetBaseAddress(surf);
+    for (int d = 0; d < DIM; d++) {
+        cvt_f32_f16(buf + d*QKV_BWD_SP + 3*SEQ,       Wq + d*DIM, DIM);
+        cvt_f32_f16(buf + d*QKV_BWD_SP + 3*SEQ+DIM,   Wk + d*DIM, DIM);
+        cvt_f32_f16(buf + d*QKV_BWD_SP + 3*SEQ+2*DIM, Wv + d*DIM, DIM);
+    }
+    IOSurfaceUnlock(surf, 0, NULL);
+}
+
+static void write_qkv_bwd_acts(IOSurfaceRef surf, const float *dq, const float *dk, const float *dv) {
+    IOSurfaceLock(surf, 0, NULL);
+    _Float16 *buf = (_Float16*)IOSurfaceGetBaseAddress(surf);
+    for (int d = 0; d < DIM; d++) {
+        cvt_f32_f16(buf + d*QKV_BWD_SP,       dq + d*SEQ, SEQ);
+        cvt_f32_f16(buf + d*QKV_BWD_SP + SEQ,  dk + d*SEQ, SEQ);
+        cvt_f32_f16(buf + d*QKV_BWD_SP + 2*SEQ, dv + d*SEQ, SEQ);
+    }
+    IOSurfaceUnlock(surf, 0, NULL);
 }
 
 // Free per-layer surfaces and requests
@@ -329,8 +381,10 @@ static void free_per_layer(PerLayerSurfaces *pls, PerLayerRequests *plr) {
         CFRelease(pls[L].sdpaFwd_in); CFRelease(pls[L].woFwd_in); CFRelease(pls[L].ffnFused_in);
         CFRelease(pls[L].ffnBwdW2t_in); CFRelease(pls[L].ffnBwdW13t_in);
         CFRelease(pls[L].wotBwd_in); CFRelease(pls[L].qBwd_in); CFRelease(pls[L].kvBwd_in);
+        CFRelease(pls[L].sdpaWoFwd_in); CFRelease(pls[L].qkvBwd_in);
         CFRelease(plr[L].sdpaFwd); CFRelease(plr[L].woFwd); CFRelease(plr[L].ffnFused);
         CFRelease(plr[L].ffnBwdW2t); CFRelease(plr[L].ffnBwdW13t);
         CFRelease(plr[L].wotBwd); CFRelease(plr[L].qBwd); CFRelease(plr[L].kvBwd);
+        CFRelease(plr[L].sdpaWoFwd); CFRelease(plr[L].sdpaBwdFused); CFRelease(plr[L].qkvBwd);
     }
 }

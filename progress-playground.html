@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ANE Autoresearch Progress</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: #0d1117;
+    color: #c9d1d9;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+  }
+  .layout {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* Controls panel */
+  .controls {
+    width: 260px;
+    min-width: 260px;
+    background: #161b22;
+    border-right: 1px solid #30363d;
+    padding: 16px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .controls h2 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #8b949e;
+    margin-bottom: 4px;
+  }
+  .control-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  label {
+    font-size: 12px;
+    color: #8b949e;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  label span.val {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    color: #58a6ff;
+    font-size: 11px;
+  }
+  input[type="range"] {
+    width: 100%;
+    accent-color: #2ecc71;
+    height: 4px;
+  }
+  input[type="color"] {
+    width: 32px;
+    height: 24px;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    background: none;
+    cursor: pointer;
+  }
+  select {
+    background: #0d1117;
+    color: #c9d1d9;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 12px;
+    width: 100%;
+  }
+  .checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #c9d1d9;
+  }
+  .checkbox-row input { accent-color: #2ecc71; }
+
+  /* Presets */
+  .presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .presets button {
+    background: #21262d;
+    color: #c9d1d9;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .presets button:hover { background: #30363d; }
+  .presets button.active { background: #238636; border-color: #2ecc71; }
+
+  /* Preview */
+  .preview {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .canvas-wrap {
+    flex: 1;
+    padding: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 0;
+  }
+  canvas {
+    max-width: 100%;
+    max-height: 100%;
+    border-radius: 8px;
+  }
+
+  /* Tooltip */
+  .tooltip {
+    position: fixed;
+    background: #1c2128;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 12px;
+    pointer-events: none;
+    z-index: 100;
+    display: none;
+    max-width: 300px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  }
+  .tooltip .tt-loss {
+    font-family: 'SF Mono', monospace;
+    font-size: 14px;
+    font-weight: 600;
+    color: #2ecc71;
+  }
+  .tooltip .tt-desc {
+    color: #8b949e;
+    margin-top: 2px;
+    font-size: 11px;
+  }
+
+  /* Stats bar */
+  .stats-bar {
+    background: #161b22;
+    border-top: 1px solid #30363d;
+    padding: 8px 16px;
+    display: flex;
+    gap: 24px;
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+  .stat { display: flex; gap: 6px; }
+  .stat .stat-label { color: #8b949e; }
+  .stat .stat-value { color: #58a6ff; font-family: 'SF Mono', monospace; }
+
+  /* Download button */
+  .download-row {
+    display: flex;
+    gap: 6px;
+  }
+  .btn {
+    background: #238636;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    padding: 6px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    flex: 1;
+    text-align: center;
+  }
+  .btn:hover { background: #2ea043; }
+  .btn.secondary {
+    background: #21262d;
+    color: #c9d1d9;
+    border: 1px solid #30363d;
+  }
+  .btn.secondary:hover { background: #30363d; }
+</style>
+</head>
+<body>
+
+<div class="layout">
+  <div class="controls">
+    <div>
+      <h2>Presets</h2>
+      <div class="presets">
+        <button onclick="applyPreset('default')" id="pre-default">Default</button>
+        <button onclick="applyPreset('paper')" id="pre-paper">Paper</button>
+        <button onclick="applyPreset('dark')" id="pre-dark">Dark</button>
+        <button onclick="applyPreset('neon')" id="pre-neon">Neon</button>
+        <button onclick="applyPreset('minimal')" id="pre-minimal">Minimal</button>
+      </div>
+    </div>
+
+    <div class="control-group">
+      <h2>Colors</h2>
+      <label>Background <input type="color" id="bgColor" value="#ffffff" oninput="s('bgColor',this.value)"></label>
+      <label>Kept points <input type="color" id="keptColor" value="#2ecc71" oninput="s('keptColor',this.value)"></label>
+      <label>Best line <input type="color" id="lineColor" value="#2ecc71" oninput="s('lineColor',this.value)"></label>
+      <label>Text color <input type="color" id="textColor" value="#333333" oninput="s('textColor',this.value)"></label>
+      <label>Grid color <input type="color" id="gridColor" value="#e0e0e0" oninput="s('gridColor',this.value)"></label>
+    </div>
+
+    <div class="control-group">
+      <h2>Points</h2>
+      <label>Point size <span class="val" id="v-pointSize">8</span></label>
+      <input type="range" id="pointSize" min="3" max="20" value="8" oninput="s('pointSize',+this.value)">
+      <label>Line width <span class="val" id="v-lineWidth">2</span></label>
+      <input type="range" id="lineWidth" min="1" max="6" step="0.5" value="2" oninput="s('lineWidth',+this.value)">
+    </div>
+
+    <div class="control-group">
+      <h2>Layout</h2>
+      <label>Font size <span class="val" id="v-fontSize">12</span></label>
+      <input type="range" id="fontSize" min="8" max="20" value="12" oninput="s('fontSize',+this.value)">
+      <label>Padding <span class="val" id="v-padding">60</span></label>
+      <input type="range" id="padding" min="30" max="120" value="60" oninput="s('padding',+this.value)">
+    </div>
+
+    <div class="control-group">
+      <h2>Elements</h2>
+      <label class="checkbox-row"><input type="checkbox" id="showLabels" checked onchange="s('showLabels',this.checked)"> Annotations</label>
+      <label class="checkbox-row"><input type="checkbox" id="showGrid" checked onchange="s('showGrid',this.checked)"> Grid</label>
+      <label class="checkbox-row"><input type="checkbox" id="showStaircase" checked onchange="s('showStaircase',this.checked)"> Running best</label>
+      <label class="checkbox-row"><input type="checkbox" id="showTitle" checked onchange="s('showTitle',this.checked)"> Title</label>
+      <label class="checkbox-row"><input type="checkbox" id="showLegend" checked onchange="s('showLegend',this.checked)"> Legend</label>
+      <label>Line style
+        <select id="lineStyle" onchange="s('lineStyle',this.value)">
+          <option value="staircase">Staircase</option>
+          <option value="smooth">Smooth</option>
+          <option value="linear">Linear</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="control-group download-row">
+      <button class="btn" onclick="downloadPNG()">Download PNG</button>
+      <button class="btn secondary" onclick="downloadSVG()">Copy SVG</button>
+    </div>
+  </div>
+
+  <div class="preview">
+    <div class="canvas-wrap">
+      <canvas id="chart" width="1400" height="700"></canvas>
+    </div>
+    <div class="stats-bar" id="statsBar"></div>
+  </div>
+</div>
+
+<div class="tooltip" id="tooltip">
+  <div class="tt-loss"></div>
+  <div class="tt-desc"></div>
+</div>
+
+<script>
+// --- DATA ---
+const DATA = [
+  { run: 1, val_loss: 3.828038, ane: 3.6, status: 'keep', desc: 'FRESH ACCUM=2 cycle1 (1284 steps, 175ms/step, +12% from vDSP Adam + parallel restage)' },
+  { run: 2, val_loss: 3.690484, ane: 3.6, status: 'keep', desc: 'ACCUM=2 cycle2' },
+  { run: 3, val_loss: 3.627400, ane: 3.6, status: 'keep', desc: 'ACCUM=2 cycle3' },
+  { run: 4, val_loss: 3.524513, ane: 3.6, status: 'keep', desc: 'ACCUM=2 cycle4' },
+  { run: 5, val_loss: 3.430232, ane: 3.6, status: 'keep', desc: 'ACCUM=2 cycle5' },
+  { run: 6, val_loss: 3.370541, ane: 3.6, status: 'keep', desc: 'ACCUM=2 cycle6' },
+  { run: 7, val_loss: 3.364720, ane: 3.6, status: 'keep', desc: 'ACCUM=2 cycle7' },
+  { run: 8, val_loss: 3.316576, ane: 3.6, status: 'keep', desc: 'ACCUM=2 cycle8' },
+  { run: 9, val_loss: 3.298264, ane: 3.6, status: 'keep', desc: 'ACCUM=2 cycle9' },
+  { run: 10, val_loss: 3.122431, ane: 3.6, status: 'keep', desc: 'ACCUM=2 cycle10 (big drop 3.30→3.12!)' },
+  { run: 11, val_loss: 3.102219, ane: 3.6, status: 'keep', desc: 'ACCUM=2 cycle11 (NEW BEST 3.12→3.10!)' },
+  { run: 12, val_loss: 3.101792, ane: 3.6, status: 'keep', desc: 'ACCUM=2 cycle12 (plateau)' },
+];
+
+const keeps = DATA.filter(d => d.status === 'keep');
+const discards = DATA.filter(d => d.status !== 'keep');
+
+// Running best
+let bestSoFar = Infinity;
+const runningBest = [];
+for (const d of DATA) {
+  if (d.status === 'keep' && d.val_loss < bestSoFar) {
+    bestSoFar = d.val_loss;
+    runningBest.push({ run: d.run, val_loss: bestSoFar });
+  }
+}
+const runningBestRuns = new Set(runningBest.map(r => r.run));
+
+// --- STATE ---
+const DEFAULTS = {
+  bgColor: '#ffffff',
+  keptColor: '#2ecc71',
+  lineColor: '#2ecc71',
+  textColor: '#333333',
+  gridColor: '#e0e0e0',
+  pointSize: 8,
+  lineWidth: 2,
+  fontSize: 12,
+  padding: 60,
+  showLabels: true,
+  showGrid: true,
+  showStaircase: true,
+  showTitle: true,
+  showLegend: true,
+  lineStyle: 'staircase',
+};
+
+const state = { ...DEFAULTS };
+
+function s(key, val) {
+  state[key] = val;
+  const vEl = document.getElementById('v-' + key);
+  if (vEl) vEl.textContent = val;
+  updateAll();
+}
+
+// --- PRESETS ---
+const PRESETS = {
+  default: { ...DEFAULTS },
+  paper: {
+    bgColor: '#fffdf5', keptColor: '#1a73e8', lineColor: '#1a73e8',
+    textColor: '#222222', gridColor: '#ddd8c4', pointSize: 6, lineWidth: 1.5,
+    fontSize: 11, padding: 70, showLabels: true, showGrid: true,
+    showStaircase: true, showTitle: true, showLegend: true, lineStyle: 'smooth',
+  },
+  dark: {
+    bgColor: '#0d1117', keptColor: '#58a6ff', lineColor: '#58a6ff',
+    textColor: '#c9d1d9', gridColor: '#21262d', pointSize: 8, lineWidth: 2,
+    fontSize: 12, padding: 60, showLabels: true, showGrid: true,
+    showStaircase: true, showTitle: true, showLegend: true, lineStyle: 'staircase',
+  },
+  neon: {
+    bgColor: '#0a0a1a', keptColor: '#00ff88', lineColor: '#ff00ff',
+    textColor: '#ccccff', gridColor: '#1a1a3a', pointSize: 10, lineWidth: 3,
+    fontSize: 13, padding: 60, showLabels: false, showGrid: true,
+    showStaircase: true, showTitle: true, showLegend: true, lineStyle: 'smooth',
+  },
+  minimal: {
+    bgColor: '#ffffff', keptColor: '#333333', lineColor: '#333333',
+    textColor: '#333333', gridColor: '#f0f0f0', pointSize: 5, lineWidth: 1,
+    fontSize: 11, padding: 50, showLabels: false, showGrid: false,
+    showStaircase: true, showTitle: false, showLegend: false, lineStyle: 'linear',
+  },
+};
+
+function applyPreset(name) {
+  Object.assign(state, PRESETS[name]);
+  // Sync UI
+  for (const [k, v] of Object.entries(state)) {
+    const el = document.getElementById(k);
+    if (!el) continue;
+    if (el.type === 'checkbox') el.checked = v;
+    else el.value = v;
+    const vEl = document.getElementById('v-' + k);
+    if (vEl) vEl.textContent = v;
+  }
+  document.querySelectorAll('.presets button').forEach(b => b.classList.remove('active'));
+  document.getElementById('pre-' + name)?.classList.add('active');
+  updateAll();
+}
+
+// --- CHART ---
+const canvas = document.getElementById('chart');
+const ctx = canvas.getContext('2d');
+
+// Stored point positions for hover
+let pointPositions = [];
+
+function render() {
+  const W = canvas.width, H = canvas.height;
+  const pad = state.padding;
+  const padTop = state.showTitle ? pad + 30 : pad;
+  const padRight = pad + 40;
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Background
+  ctx.fillStyle = state.bgColor;
+  ctx.fillRect(0, 0, W, H);
+
+  // Data bounds
+  const allLoss = DATA.map(d => d.val_loss);
+  const minLoss = Math.min(...allLoss);
+  const maxLoss = Math.max(...allLoss);
+  const lossRange = maxLoss - minLoss;
+  const yMin = minLoss - lossRange * 0.05;
+  const yMax = maxLoss + lossRange * 0.15;
+  const xMin = 0;
+  const xMax = DATA.length + 1;
+
+  const plotW = W - pad - padRight;
+  const plotH = H - padTop - pad;
+
+  function toX(run) { return pad + (run - xMin) / (xMax - xMin) * plotW; }
+  function toY(loss) { return padTop + (1 - (loss - yMin) / (yMax - yMin)) * plotH; }
+
+  // Grid
+  if (state.showGrid) {
+    ctx.strokeStyle = state.gridColor;
+    ctx.lineWidth = 0.5;
+    // Y grid lines
+    const yStep = lossRange < 1 ? 0.1 : 0.2;
+    for (let v = Math.ceil(yMin / yStep) * yStep; v <= yMax; v += yStep) {
+      const y = toY(v);
+      ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(W - padRight, y); ctx.stroke();
+    }
+    // X grid lines
+    for (let i = 1; i <= DATA.length; i++) {
+      const x = toX(i);
+      ctx.beginPath(); ctx.moveTo(x, padTop); ctx.lineTo(x, padTop + plotH); ctx.stroke();
+    }
+  }
+
+  // Axes
+  ctx.strokeStyle = state.textColor + '44';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(pad, padTop); ctx.lineTo(pad, padTop + plotH); ctx.lineTo(W - padRight, padTop + plotH); ctx.stroke();
+
+  // Y-axis labels
+  ctx.fillStyle = state.textColor;
+  ctx.font = `${state.fontSize - 1}px 'SF Mono', monospace`;
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  const yStep = lossRange < 1 ? 0.1 : 0.2;
+  for (let v = Math.ceil(yMin / yStep) * yStep; v <= yMax; v += yStep) {
+    ctx.fillText(v.toFixed(2), pad - 8, toY(v));
+  }
+
+  // X-axis labels
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  for (let i = 1; i <= DATA.length; i++) {
+    ctx.fillText(i, toX(i), padTop + plotH + 8);
+  }
+
+  // Axis titles
+  ctx.font = `${state.fontSize}px -apple-system, system-ui, sans-serif`;
+  ctx.fillStyle = state.textColor;
+  ctx.textAlign = 'center';
+  ctx.fillText('Experiment #', pad + plotW / 2, H - 12);
+
+  ctx.save();
+  ctx.translate(14, padTop + plotH / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText('Validation Loss (lower is better)', 0, 0);
+  ctx.restore();
+
+  // Running best line
+  if (state.showStaircase && runningBest.length > 0) {
+    ctx.strokeStyle = state.lineColor;
+    ctx.lineWidth = state.lineWidth;
+    ctx.globalAlpha = 0.8;
+    ctx.beginPath();
+
+    if (state.lineStyle === 'staircase') {
+      ctx.moveTo(toX(runningBest[0].run), toY(runningBest[0].val_loss));
+      for (let i = 1; i < runningBest.length; i++) {
+        ctx.lineTo(toX(runningBest[i].run), toY(runningBest[i - 1].val_loss));
+        ctx.lineTo(toX(runningBest[i].run), toY(runningBest[i].val_loss));
+      }
+      // Extend to end
+      ctx.lineTo(toX(DATA.length), toY(runningBest[runningBest.length - 1].val_loss));
+    } else if (state.lineStyle === 'linear') {
+      ctx.moveTo(toX(runningBest[0].run), toY(runningBest[0].val_loss));
+      for (let i = 1; i < runningBest.length; i++) {
+        ctx.lineTo(toX(runningBest[i].run), toY(runningBest[i].val_loss));
+      }
+    } else {
+      // Smooth (cardinal spline through running best)
+      const pts = runningBest.map(r => ({ x: toX(r.run), y: toY(r.val_loss) }));
+      if (pts.length >= 2) {
+        ctx.moveTo(pts[0].x, pts[0].y);
+        if (pts.length === 2) {
+          ctx.lineTo(pts[1].x, pts[1].y);
+        } else {
+          for (let i = 0; i < pts.length - 1; i++) {
+            const p0 = pts[Math.max(0, i - 1)];
+            const p1 = pts[i];
+            const p2 = pts[Math.min(pts.length - 1, i + 1)];
+            const p3 = pts[Math.min(pts.length - 1, i + 2)];
+            const cp1x = p1.x + (p2.x - p0.x) / 6;
+            const cp1y = p1.y + (p2.y - p0.y) / 6;
+            const cp2x = p2.x - (p3.x - p1.x) / 6;
+            const cp2y = p2.y - (p3.y - p1.y) / 6;
+            ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+          }
+        }
+      }
+    }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  // Points
+  pointPositions = [];
+
+  // Discards (if any)
+  for (const d of discards) {
+    const x = toX(d.run), y = toY(d.val_loss);
+    ctx.fillStyle = '#cccccc';
+    ctx.globalAlpha = 0.7;
+    ctx.beginPath();
+    ctx.arc(x, y, state.pointSize * 0.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    pointPositions.push({ x, y, data: d });
+  }
+
+  // Kept
+  for (const d of keeps) {
+    const x = toX(d.run), y = toY(d.val_loss);
+    ctx.fillStyle = state.keptColor;
+    ctx.beginPath();
+    ctx.arc(x, y, state.pointSize, 0, Math.PI * 2);
+    ctx.fill();
+    // White edge
+    ctx.strokeStyle = state.bgColor;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    pointPositions.push({ x, y, data: d });
+  }
+
+  // Labels
+  if (state.showLabels) {
+    ctx.font = `${Math.max(8, state.fontSize - 4)}px -apple-system, system-ui, sans-serif`;
+    ctx.fillStyle = state.textColor + '88';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'bottom';
+
+    let lastLabelY = -999;
+    for (const d of DATA) {
+      if (!runningBestRuns.has(d.run)) continue;
+      const x = toX(d.run), y = toY(d.val_loss);
+      if (Math.abs(y - lastLabelY) < 14) continue;
+      lastLabelY = y;
+
+      let label = d.desc.split('(')[0].trim();
+      if (label.length > 30) label = label.slice(0, 27) + '...';
+
+      ctx.save();
+      ctx.translate(x + state.pointSize + 4, y - 4);
+      ctx.rotate(-0.45);
+      ctx.fillText(label, 0, 0);
+      ctx.restore();
+    }
+  }
+
+  // Title
+  if (state.showTitle) {
+    ctx.fillStyle = state.textColor;
+    ctx.font = `bold ${state.fontSize + 2}px -apple-system, system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(
+      `ANE Autoresearch Progress: ${DATA.length} Experiments, ${keeps.length} Kept`,
+      pad + plotW / 2, 12
+    );
+  }
+
+  // Legend
+  if (state.showLegend) {
+    const lx = W - padRight - 10;
+    const ly = padTop + 10;
+    ctx.font = `${state.fontSize - 1}px -apple-system, system-ui, sans-serif`;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+
+    // Kept
+    ctx.fillStyle = state.keptColor;
+    ctx.beginPath(); ctx.arc(lx - 60, ly, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = state.textColor;
+    ctx.fillText('Kept', lx - 2, ly);
+
+    // Running best
+    if (state.showStaircase) {
+      ctx.strokeStyle = state.lineColor;
+      ctx.lineWidth = state.lineWidth;
+      ctx.beginPath(); ctx.moveTo(lx - 75, ly + 22); ctx.lineTo(lx - 45, ly + 22); ctx.stroke();
+      ctx.fillStyle = state.textColor;
+      ctx.fillText('Running best', lx - 2, ly + 22);
+    }
+  }
+}
+
+function updateStats() {
+  const losses = keeps.map(d => d.val_loss);
+  const best = Math.min(...losses);
+  const worst = Math.max(...losses);
+  const improvement = ((worst - best) / worst * 100).toFixed(1);
+
+  document.getElementById('statsBar').innerHTML = `
+    <div class="stat"><span class="stat-label">Best:</span><span class="stat-value">${best.toFixed(4)}</span></div>
+    <div class="stat"><span class="stat-label">Start:</span><span class="stat-value">${worst.toFixed(4)}</span></div>
+    <div class="stat"><span class="stat-label">Improvement:</span><span class="stat-value">${improvement}%</span></div>
+    <div class="stat"><span class="stat-label">Experiments:</span><span class="stat-value">${DATA.length}</span></div>
+    <div class="stat"><span class="stat-label">ANE util:</span><span class="stat-value">${DATA[0].ane}%</span></div>
+  `;
+}
+
+function updateAll() {
+  render();
+  updateStats();
+}
+
+// --- TOOLTIP ---
+const tooltip = document.getElementById('tooltip');
+canvas.addEventListener('mousemove', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const mx = (e.clientX - rect.left) * scaleX;
+  const my = (e.clientY - rect.top) * scaleY;
+
+  let closest = null;
+  let minDist = Infinity;
+  for (const p of pointPositions) {
+    const dist = Math.hypot(p.x - mx, p.y - my);
+    if (dist < minDist && dist < 30) {
+      minDist = dist;
+      closest = p;
+    }
+  }
+
+  if (closest) {
+    tooltip.style.display = 'block';
+    tooltip.style.left = e.clientX + 12 + 'px';
+    tooltip.style.top = e.clientY - 10 + 'px';
+    tooltip.querySelector('.tt-loss').textContent = `val_loss: ${closest.data.val_loss.toFixed(6)}`;
+    tooltip.querySelector('.tt-desc').textContent = closest.data.desc;
+    canvas.style.cursor = 'crosshair';
+  } else {
+    tooltip.style.display = 'none';
+    canvas.style.cursor = 'default';
+  }
+});
+
+canvas.addEventListener('mouseleave', () => {
+  tooltip.style.display = 'none';
+});
+
+// --- DOWNLOAD ---
+function downloadPNG() {
+  const link = document.createElement('a');
+  link.download = 'ane-progress.png';
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+}
+
+function downloadSVG() {
+  // Copy canvas as data URL to clipboard
+  canvas.toBlob(blob => {
+    navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]).then(() => {
+      const btn = document.querySelector('.btn.secondary');
+      btn.textContent = 'Copied!';
+      setTimeout(() => btn.textContent = 'Copy PNG', 1500);
+    });
+  });
+}
+
+// --- RESIZE ---
+function resize() {
+  const wrap = document.querySelector('.canvas-wrap');
+  const dpr = window.devicePixelRatio || 1;
+  const w = wrap.clientWidth - 32;
+  const h = wrap.clientHeight - 32;
+  const aspect = 2;
+  let cw, ch;
+  if (w / h > aspect) {
+    ch = h; cw = h * aspect;
+  } else {
+    cw = w; ch = w / aspect;
+  }
+  canvas.width = cw * dpr;
+  canvas.height = ch * dpr;
+  canvas.style.width = cw + 'px';
+  canvas.style.height = ch + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  // Re-set canvas internal dimensions for coordinate mapping
+  canvas.width = cw * dpr;
+  canvas.height = ch * dpr;
+  ctx.scale(dpr, dpr);
+  updateAll();
+}
+
+window.addEventListener('resize', resize);
+
+// Init
+applyPreset('default');
+resize();
+</script>
+</body>
+</html>

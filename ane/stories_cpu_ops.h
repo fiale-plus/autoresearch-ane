@@ -52,6 +52,38 @@ static void rmsnorm_bwd(float *dx, float *dw, const float *dy, const float *x, c
     free(ss); free(rrms); free(dot); free(rms_tmp);
 }
 
+// Lion optimizer: sign-based updates, no second moment, ~2x faster than Adam
+// Paper: Chen et al., "Symbolic Discovery of Optimization Algorithms" (2023)
+// update = sign(β1 * m + (1-β1) * g), then m = β2 * m + (1-β2) * g
+static void lion_update(float *w, const float *g, AdamState *s, int t, float lr, float b1, float b2, float eps, float wd) {
+    (void)t; (void)eps; // unused in Lion
+    vDSP_Length n = (vDSP_Length)s->n;
+
+    // Decoupled weight decay: w -= wd * lr * w
+    if (wd > 0) {
+        float neg_wd_lr = -wd * lr;
+        vDSP_vsma(w, 1, &neg_wd_lr, w, 1, w, 1, n);
+    }
+
+    // c = β1 * m + (1-β1) * g  (interpolation for sign)
+    float one_minus_b1 = 1.0f - b1;
+    float *c = (float*)malloc(s->n * 4);
+    vDSP_vsmul(s->m, 1, &b1, c, 1, n);
+    vDSP_vsma(g, 1, &one_minus_b1, c, 1, c, 1, n);
+
+    // w -= lr * sign(c)
+    // sign(c) via threshold: positive → -lr, negative → +lr, zero → 0
+    float neg_lr = -lr;
+    for (size_t i = 0; i < s->n; i++)
+        w[i] += (c[i] > 0 ? neg_lr : (c[i] < 0 ? lr : 0));
+    free(c);
+
+    // Update momentum: m = β2 * m + (1-β2) * g
+    float one_minus_b2 = 1.0f - b2;
+    vDSP_vsmul(s->m, 1, &b2, s->m, 1, n);
+    vDSP_vsma(g, 1, &one_minus_b2, s->m, 1, s->m, 1, n);
+}
+
 static void adam_update(float *w, const float *g, AdamState *s, int t, float lr, float b1, float b2, float eps, float wd) {
     float bc1 = 1.0f - powf(b1, t), bc2 = 1.0f - powf(b2, t);
     float inv_bc1 = 1.0f / bc1, inv_bc2 = 1.0f / bc2;
@@ -211,9 +243,9 @@ static void embed_lookup(float *x, const float *embed, const uint16_t *tokens, i
     for (int t = 0; t < seq; t++) {
         int tok = tokens[t];
         if (tok < 0 || tok >= VOCAB) { fprintf(stderr, "WARN: token %d out of range [0,%d)\n", tok, VOCAB); continue; }
-        for (int d = 0; d < dim; d++) {
-            x[d*seq + t] = embed[tok*dim + d];
-        }
+        // Vectorized gather: embed row (contiguous) → x column (stride=seq)
+        // cblas_scopy handles SIMD + prefetch, ~12x faster than scalar loop (maderix/ANE PR #39)
+        cblas_scopy(dim, embed + tok*dim, 1, x + t, seq);
     }
 }
 
@@ -224,8 +256,8 @@ static float clip_gradients(LayerGrads *grads, float *grms_final, float *gembed,
     for (int L = 0; L < NLAYERS; L++) {
         float dot;
         vDSP_dotpr(grads[L].Wq, 1, grads[L].Wq, 1, &dot, (vDSP_Length)WQ_SZ); norm_sq += dot;
-        vDSP_dotpr(grads[L].Wk, 1, grads[L].Wk, 1, &dot, (vDSP_Length)WQ_SZ); norm_sq += dot;
-        vDSP_dotpr(grads[L].Wv, 1, grads[L].Wv, 1, &dot, (vDSP_Length)WQ_SZ); norm_sq += dot;
+        vDSP_dotpr(grads[L].Wk, 1, grads[L].Wk, 1, &dot, (vDSP_Length)WK_SZ); norm_sq += dot;
+        vDSP_dotpr(grads[L].Wv, 1, grads[L].Wv, 1, &dot, (vDSP_Length)WV_SZ); norm_sq += dot;
         vDSP_dotpr(grads[L].Wo, 1, grads[L].Wo, 1, &dot, (vDSP_Length)WO_SZ); norm_sq += dot;
         vDSP_dotpr(grads[L].W1, 1, grads[L].W1, 1, &dot, (vDSP_Length)W1_SZ); norm_sq += dot;
         vDSP_dotpr(grads[L].W2, 1, grads[L].W2, 1, &dot, (vDSP_Length)W2_SZ); norm_sq += dot;
@@ -242,8 +274,8 @@ static float clip_gradients(LayerGrads *grads, float *grms_final, float *gembed,
         float scale = max_norm / total_norm;
         for (int L = 0; L < NLAYERS; L++) {
             vDSP_vsmul(grads[L].Wq, 1, &scale, grads[L].Wq, 1, (vDSP_Length)WQ_SZ);
-            vDSP_vsmul(grads[L].Wk, 1, &scale, grads[L].Wk, 1, (vDSP_Length)WQ_SZ);
-            vDSP_vsmul(grads[L].Wv, 1, &scale, grads[L].Wv, 1, (vDSP_Length)WQ_SZ);
+            vDSP_vsmul(grads[L].Wk, 1, &scale, grads[L].Wk, 1, (vDSP_Length)WK_SZ);
+            vDSP_vsmul(grads[L].Wv, 1, &scale, grads[L].Wv, 1, (vDSP_Length)WV_SZ);
             vDSP_vsmul(grads[L].Wo, 1, &scale, grads[L].Wo, 1, (vDSP_Length)WO_SZ);
             vDSP_vsmul(grads[L].W1, 1, &scale, grads[L].W1, 1, (vDSP_Length)W1_SZ);
             vDSP_vsmul(grads[L].W2, 1, &scale, grads[L].W2, 1, (vDSP_Length)W2_SZ);
@@ -262,8 +294,9 @@ static void embed_backward(float *d_embed, const float *dx, const uint16_t *toke
     for (int t = 0; t < seq; t++) {
         int tok = tokens[t];
         if (tok < 0 || tok >= VOCAB) { continue; }
-        for (int d = 0; d < dim; d++) {
-            d_embed[tok*dim + d] += dx[d*seq + t];
-        }
+        // Vectorized scatter-add: dx column (stride=seq) → d_embed row (contiguous)
+        // cblas_saxpy: y += alpha*x with stride support
+        float one = 1.0f;
+        cblas_saxpy(dim, one, dx + t, seq, d_embed + tok*dim, 1);
     }
 }

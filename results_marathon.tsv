@@ -1,0 +1,5 @@
+commit	val_loss	ane_util_pct	status	description
+4368746	3.615784	6.5	keep	v4 1/50 ACCUM=2 95.8ms 2204steps
+3b42ee0			keep	v4 2/50 ACCUM=4 ms steps
+3a44218			keep	v4 3/50 ACCUM=6 ms steps
+71a08ba	3.104933	4.4	keep	v4 4/50 ACCUM=8 143.9ms 1741steps
