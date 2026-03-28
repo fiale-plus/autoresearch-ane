@@ -223,9 +223,37 @@ This project builds on and references the following repositories:
 - **[maderix/ANE](https://github.com/maderix/ANE)** — First project to train transformers directly on the Apple Neural Engine using Objective-C and raw MIL kernel compilation. The ANE training backend in this repo is based on this work.
 - **[miolini/autoresearch-macos](https://github.com/miolini/autoresearch-macos)** — MacOS fork of autoresearch adapted for Apple Silicon. Early reference for running autonomous research on Mac hardware.
 - **[ncdrone/autoresearch-ANE](https://github.com/ncdrone/autoresearch-ANE)** — ANE-native autoresearch fork. Key finding: "more steps > bigger model" — NL=6 SEQ=512 gets ~3000 steps/5min vs ~400 at NL=12 SEQ=256, achieving val_loss=5.81. This insight drove the architecture change that broke through the initial plateau.
-- **[mechramc/orion](https://github.com/mechramc/orion)** — Production ANE runtime for Stories110M/GPT-2. Delta compilation, Graph IR compiler, LoRA hot-swapping. Documents 14 ANE hardware constraints.
+- **[mechramc/orion](https://github.com/mechramc/orion)** — Production ANE runtime for Stories110M/GPT-2. Delta compilation, Graph IR compiler, LoRA hot-swapping. Documents 14 ANE hardware constraints. Published as [arXiv:2603.06728](https://arxiv.org/abs/2603.06728).
 - **[vipuldivyanshu92/ANEgpt](https://github.com/vipuldivyanshu92/ANEgpt)** — ANE transformer training with async CPU-ANE pipelining, kernel lifecycle separation, and per-operation profiling.
+- **[imperatormk/ane-train](https://github.com/imperatormk/ane-train)** — Runtime IOSurface weight injection without recompilation. Passes weights as input tensors, compiles once, updates via `memcpy` each step. Runs a 28-block ConvNeXt UNet at ~3 it/s on M1. Discovered key constraints: IOSurface slot sizes must be strictly ascending for inputs / descending for outputs (silent zeros otherwise), matmul inner dim must be multiple of 32, grouped/depthwise conv fails with runtime weights.
+- **[christopherkarani/Espresso](https://github.com/christopherkarani/Espresso)** — Pure Swift ANE transformer inference achieving 4.76x throughput vs CoreML (1.08ms/token vs 5.09ms). Fused 3-layer kernels, zero-copy I/O. Actively maintained.
+- **[ncdrone/rustane](https://github.com/ncdrone/rustane)** — Rust-native hybrid ANE + Metal GPU training and inference engine. Community benchmark leaderboard.
 
+### Recent findings from the ecosystem (March 2026)
+
+**Embedding lookup 12x speedup** ([maderix/ANE PR #39](https://github.com/maderix/ANE/pull/39)): Cache-optimized embedding using contiguous `memcpy` gather + `vDSP_mtrans` transpose. Eliminates stride-seq cache misses. 0.39ms → 0.033ms per call on M4 Max. Drop-in replacement for `embed_lookup`.
+
+**E5 Runtime research** ([maderix/ANE PR #40](https://github.com/maderix/ANE/pull/40)): Custom MIL text can be compiled directly to ANE via `MLE5ProgramLibraryOnDeviceAOTCompilationImpl`. Legacy `_ANEChainingRequest` API is dead on macOS 15+; E5 runtime (`MLE5Engine`) is the modern path. 7 test programs (~7K lines of reverse-engineering experiments).
+
+**Mixed weight type limit** ([mechramc/orion issue #3](https://github.com/mechramc/orion/issues/3)): ANE programs with both RMSNorm and linear weights fail at 16 total weights. Pure linear can have 16. Each norm reduces the limit by 1. Practical limit: ~3 FFN layers per ANE mega-kernel.
+
+**M3 Ultra 512ch constraint** ([maderix/ANE issue #42](https://github.com/maderix/ANE/issues/42)): 512 channels is the ONLY valid channel count on M3 Ultra. Everything else fails with -4 or -3. Peak sustained: 8.77 TFLOPS at 128x conv depth.
+
+**Security fix needed** ([maderix/ANE PR #45](https://github.com/maderix/ANE/pull/45)): Untrusted model config fields (`n_layers`, `dim`, `hidden_dim`) can cause OOB writes and NULL deref. Bounds checking required after reading Config from disk.
+
+### ANE hardware constraints (compiled from ecosystem)
+
+| Constraint | Source | Impact |
+|---|---|---|
+| 512 channels only on M3 Ultra | maderix #42 | Hard limit, all others fail |
+| Mixed weight limit: 16 - n_norms | mechramc #3 | Limits mega-kernel layer count |
+| IOSurface slots must be ascending (in) / descending (out) | imperatormk | Silent zeros on violation |
+| Matmul inner dim must be multiple of 32 | imperatormk | Silent zeros on violation |
+| ~100 kernel compilations before process restart needed | our experiments | ANECompilerService daemon leak |
+| Thermal throttle after ~60 min continuous use (+60% step time) | our experiments | Plan for cooling breaks |
+| `reduce_sum` on channel dim requires reshape to spatial first | our experiments | RMSNorm fusion crashes |
+| GQA with non-equal KV heads crashes MIL compiler | our experiments | Use equal head counts |
+| `constexpr_affine_dequantize` incompatible with dynamic pipeline | our experiments | Bakes weights at compile time |
 
 ## License
 
