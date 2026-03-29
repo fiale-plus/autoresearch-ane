@@ -87,34 +87,46 @@ This fork adds an **ANE training backend** that runs transformer training direct
 ### How it works
 
 - Uses TinyStories dataset with Llama2 32K BPE tokenizer (ANE's native data format)
-- **Dynamic weight pipeline**: 10 ANE kernels are compiled once at startup (~470ms). Weights are passed via IOSurface spatial dimensions using `slice_by_size`, not baked into kernels — no recompilation during training
-- After each Adam update, weights are transposed and re-staged to per-layer IOSurfaces (~50ms)
-- **Scaled initialization**: Wo and W2 weights initialized with `1/sqrt(2*NLAYERS)` residual scaling
+- **Dynamic weight pipeline**: 13 ANE kernels compiled once at startup (~1s). Weights passed via IOSurface spatial dimensions using `slice_by_size` — no recompilation during training
+- **Mega-kernel fusion**: Forward pass uses fused sdpaWoFwd (SDPA + Wo projection in one kernel) and fused qkvBwd (Q+KV backward in one kernel), eliminating 12 IOSurface round-trips per step
+- **Pipeline overlap**: CPU gradient computations (dW cblas) run asynchronously during ANE forward pass. Embedding backward is also async.
+- After each Lion/Adam update, weights are transposed and re-staged to per-layer IOSurfaces
 - Metric is `val_loss` (cross-entropy), not `val_bpb` — experiments are compared within this framework
-- Agent edits only `ane/experiment_config.h` (architecture + optimizer hyperparameters)
+- Agent edits only `ane/experiment_config.h` (architecture + optimizer hyperparameters + feature toggles)
 
 ### Current best results
 
-**val_loss = 3.102** (~122 autonomous experiment cycles, ~67M param model, 5-min budget)
+**val_loss = 2.489** (~55 autonomous experiment cycles across 4 phases, ~67M param model, 5-min budget per cycle)
 
 Starting from 6.109 baseline, key improvements discovered through autonomous experimentation:
 
-| Phase | Change | val_loss | Steps/5min |
-|---|---|---|---|
-| Static kernels | Baseline (NL=12, SEQ=256) | 6.109 | ~400 |
-| | NL=6, SEQ=512 + ACCUM=1 | 5.978 | ~120 |
-| | Optimizer tuning (betas, WD, anneal cycles) | 5.414 | ~60 |
-| + ncdrone optimizer | Loss scaling, softcap, diff LR, cosine sched | 5.023 | ~120 |
-| | Extended training (15 min) | 4.836 | ~120 |
-| **Dynamic pipeline** | **One-time compile, no recompilation** | **3.89** | **~1340** |
-| | EMBED_LR_SCALE=2.0 (reduce embed LR) | 3.49 | ~1140 |
-| | ACCUM ramp 2→4→6→8→10 (gradient smoothing) | 3.120 | ~1500 |
-| **+ vDSP Adam + parallel restage** | **Vectorized optimizer, parallel layer updates** | **3.102** | **~1284** |
+| Phase | Change | val_loss | ms/step | Steps/5min |
+|---|---|---|---|---|
+| Static kernels | Baseline (NL=12, SEQ=256) | 6.109 | — | ~400 |
+| | NL=6, SEQ=512 + ACCUM=1 | 5.978 | — | ~120 |
+| | Optimizer tuning (betas, WD, anneal cycles) | 5.414 | — | ~60 |
+| + ncdrone optimizer | Loss scaling, softcap, diff LR, cosine sched | 5.023 | — | ~120 |
+| **Dynamic pipeline** | **One-time compile, no recompilation** | **3.89** | 250 | **~1340** |
+| + vDSP Adam | Vectorized optimizer, parallel layer updates | 3.102 | 176 | ~1284 |
+| + hyperparameter sweep | LR=5e-4, WD=0.1, SOFTCAP=30, MATRIX_LR=0.1 | 3.099 | 176 | ~1631 |
+| **+ Lion + pipeline** | **Lion optimizer, async dW overlap, vocab compaction** | **3.079** | 175 | ~1421 |
+| **+ kernel fusion** | **Fused sdpaWoFwd + qkvBwd mega-kernels** | **2.489** | **96** | **~2822** |
 
-Key discoveries:
-- **Dynamic weight pipeline** was the single biggest improvement: eliminating per-batch recompilation turned ~60% of wall time from compilation into training, yielding 11x more steps per 5-minute budget.
-- **Vectorized Adam + parallel restaging**: vDSP vector ops for Adam and `dispatch_apply` across layers gave 12% more steps per cycle, pushing ACCUM=2 to 3.102 without needing the ramp.
-- **ACCUM ramping**: start with low ACCUM (noisy but fast) for early training, then progressively increase ACCUM as the model approaches convergence — smoother gradients matter more at lower loss.
+### Key discoveries
+
+- **Dynamic weight pipeline** (11x speedup): Compile 10 ANE kernels once at startup, pass weights via IOSurface spatial dimensions. Eliminated per-batch recompilation that consumed ~60% of wall time.
+- **Mega-kernel fusion** (45% faster steps): Fusing sdpaFwd+woFwd into one kernel and qBwd+kvBwd into another eliminated 12 IOSurface round-trips per step. The bottleneck was IOSurface lock/unlock/memcpy overhead, not compute.
+- **Lion optimizer**: Sign-based weight updates with no second moment buffer. ~2x faster per update than Adam. Counter-intuitively, works best with Adam-style hyperparams (LR=5e-4, WD=0.1), not the lower LR/higher WD recommended in the paper.
+- **Vocab compaction** (3.5x classifier speedup): Only ~9K of 32K tokens appear in TinyStories. Reducing the classifier SGEMM from 32K to 9K vocab is free accuracy-wise.
+- **ACCUM ramping**: Start with low ACCUM (noisy but many updates) for early training, ramp up each cycle for smoother gradients. Sweet spot: ACCUM=10-12 for Lion, ACCUM=20-48 for Adam.
+- **LR schedule tuning is critical for multi-cycle runs**: TOTAL_STEPS must match the actual training window. Too high → model overfits (train_loss=0.87, val_loss=3.9). Too low → LR exhausts early, later cycles waste time.
+
+### What didn't work
+
+- **GQA with non-equal KV heads**: Crashes the MIL compiler. Must keep N_KV_HEADS=HEADS.
+- **Fused SDPA backward kernel**: ANE compiler rejects with "Graph has a cycle path" — too complex.
+- **Bigger architectures** (DIM=1024, NLAYERS=8): Can't converge in 5-min budget. More steps always beats bigger models.
+- **Lion paper hyperparams** (LR/3, WD×3): Diverged badly. Empirical testing always beats paper defaults.
 
 ### Hyperparameters
 
@@ -134,28 +146,32 @@ The agent edits `ane/experiment_config.h`. All hyperparameters and their current
 
 | Parameter | Value | Notes |
 |---|---|---|
-| `LEARNING_RATE` | 3e-4f | Base learning rate (scaled by differential LR multipliers below) |
-| `ADAM_BETA1` | 0.9f | First moment decay |
-| `ADAM_BETA2` | 0.95f | Second moment decay (ncdrone uses 0.95 vs default 0.999) |
-| `ADAM_EPS` | 1e-8f | Adam epsilon |
-| `ACCUM_STEPS` | 10 | Gradient accumulation steps per Adam update + weight re-staging (~50ms). Ramp up during training for smoother gradients |
+| `LEARNING_RATE` | 5e-4f | Base learning rate (scaled by differential LR multipliers below) |
+| `ADAM_BETA1` | 0.9f | First moment decay (used by both Adam and Lion) |
+| `ADAM_BETA2` | 0.95f | Second moment decay / Lion momentum update |
+| `ADAM_EPS` | 1e-8f | Adam epsilon (unused by Lion) |
+| `ACCUM_STEPS` | 12 | Gradient accumulation steps per weight update + restage. Ramp up during training (2→12) |
 | `GRAD_CLIP_MAX` | 1.0f | Global L2 gradient norm clip threshold |
-| `WEIGHT_DECAY` | 0.2f | Decoupled weight decay (AdamW). Applied only to weight matrices, not embeddings or RMSNorm |
+| `WEIGHT_DECAY` | 0.1f | Decoupled weight decay. Applied only to weight matrices, not embeddings or RMSNorm |
+| `TOTAL_STEPS` | 3000 | Cosine LR schedule denominator (adam_t units). Must match optimal training window |
 | `LR_WARMUP_STEPS` | 100 | Linear warmup steps before cosine decay |
 | `LR_MIN_FRAC` | 0.1f | Cosine schedule decays LR to this fraction of max |
-| `LOSS_SCALE` | 256.0f | Loss scaling factor — prevents FP16 gradient underflow. Undone during gradient averaging |
-| `SOFTCAP` | 15.0f | Logit softcapping: `cap * tanh(logits/cap)`, clamps logits to [-cap, cap] to prevent explosion |
-| `EMBED_LR_SCALE` | 2.0f | Embedding LR = base LR × this (embeddings learn faster, 5.0 too aggressive) |
-| `MATRIX_LR_SCALE` | 0.05f | Weight matrix LR = base LR × this (matrices learn slower) |
+| `LOSS_SCALE` | 512.0f | Loss scaling factor — prevents FP16 gradient underflow. Undone during gradient averaging |
+| `SOFTCAP` | 30.0f | Logit softcapping: `cap * tanh(logits/cap)`, clamps logits to [-cap, cap] |
+| `EMBED_LR_SCALE` | 2.0f | Embedding LR = base LR × this |
+| `MATRIX_LR_SCALE` | 0.1f | Weight matrix LR = base LR × this |
+| `USE_LION` | 1 | Lion optimizer (sign-based updates, no second moment, ~2x faster per update) |
+| `USE_VOCAB_COMPACT` | 1 | Vocab compaction: 32K→9K active tokens, 3.5x classifier SGEMM speedup |
 
-**Optimizer features** (from maderix/ANE + ncdrone research):
+**Optimizer features**:
 
-- **AdamW** — decoupled weight decay applied before Adam step, only on weight matrices
+- **Lion optimizer** (default) — sign-based weight updates: `w -= lr * sign(β1*m + (1-β1)*g)`, no second moment buffer. ~2x faster per update than Adam, half the optimizer memory. Toggle `USE_LION` to switch back to AdamW.
 - **Gradient clipping** — global L2 norm across all parameters using vDSP
-- **Cosine LR schedule** — linear warmup for `LR_WARMUP_STEPS`, then cosine decay to `LR_MIN_FRAC` of max LR
-- **Loss scaling (256×)** — scales gradients up before FP16 backward pass, undone during gradient averaging. Prevents underflow that causes the 5.5 plateau (maderix)
-- **Logit softcapping** — `cap * tanh(logits/cap)` before softmax with chain-rule correction in backward. Prevents logit explosion during training
-- **Differential learning rates** — embeddings at 2× base LR, weight matrices at 0.05× base LR, norm params at 1× base LR (tuned from ncdrone's 5×/0.05×)
+- **Cosine LR schedule** — linear warmup for `LR_WARMUP_STEPS`, then cosine decay to `LR_MIN_FRAC` of max LR. `TOTAL_STEPS` controls the schedule length — critical for multi-cycle training
+- **Loss scaling (512×)** — scales gradients up before FP16 backward pass, undone during gradient averaging. Prevents underflow that causes the 5.5 plateau (maderix)
+- **Logit softcapping** — `cap * tanh(logits/cap)` before softmax with chain-rule correction in backward
+- **Differential learning rates** — embeddings at 2× base LR, weight matrices at 0.1× base LR, norm params at 1× base LR
+- **Vocab compaction** — only ~9K of 32K tokens appear in TinyStories. Classifier SGEMM reduced 3.5x with zero accuracy impact
 - **Residual scaling** — residual connections scaled by `1/sqrt(2*NLAYERS)` to stabilize deep residual streams
 
 ### Differences from the CUDA backend
@@ -205,8 +221,8 @@ ane/                         # ANE training backend
 ├── experiment_config.h      # Agent's ONLY editing target
 ├── stories_config.h         # Model config, structs (includes experiment_config.h)
 ├── stories_io.h             # IOSurface I/O, dynamic weight staging, request helpers
-├── stories_mil_dynamic.h    # Dynamic MIL kernel generators (10 kernels, slice_by_size weights)
-├── stories_cpu_ops.h        # CPU ops (RMSNorm, SiLU bwd, cross-entropy, Adam, vocab compaction)
+├── stories_mil_dynamic.h    # Dynamic MIL kernel generators (13 kernels incl. fused mega-kernels)
+├── stories_cpu_ops.h        # CPU ops (RMSNorm, SiLU bwd, cross-entropy, Adam, Lion, vocab compaction)
 ├── train_ane.m              # Training binary (dynamic pipeline, one-time compile, wall-time budget)
 ├── download_data.sh         # TinyStories data download
 └── Makefile                 # Build train_ane binary
