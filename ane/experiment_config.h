@@ -12,7 +12,7 @@
 #define ADAM_BETA2 0.95f
 #define ADAM_EPS 1e-8f
 // v7 experiment: extended ramp with LOSS_SCALE=1024 from ecosystem research
-#define ACCUM_STEPS 6
+#define ACCUM_STEPS 8
 #define GRAD_CLIP_MAX 1.0f
 #define WEIGHT_DECAY 0.1f
 // LR schedule: cosine decay with linear warmup
