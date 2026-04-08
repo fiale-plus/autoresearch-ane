@@ -7,7 +7,7 @@
 #define SEQ 512
 #define NLAYERS 6
 // Optimizer (safe to change between runs)
-#define LEARNING_RATE 5e-4f
+#define LEARNING_RATE 8e-4f
 #define ADAM_BETA1 0.9f
 #define ADAM_BETA2 0.95f
 #define ADAM_EPS 1e-8f
@@ -18,9 +18,9 @@
 #define GRAD_CLIP_MAX 1.0f
 #define WEIGHT_DECAY 0.1f
 // LR schedule: cosine decay with linear warmup
-#define TOTAL_STEPS 5000
-#define LR_WARMUP_STEPS 50
-#define LR_MIN_FRAC 0.01f
+#define TOTAL_STEPS 3000
+#define LR_WARMUP_STEPS 100
+#define LR_MIN_FRAC 0.1f
 // Loss scaling: prevents FP16 gradient underflow
 // Ecosystem (Slavko) recommends 1024 for better FP16 stability — testing that
 #define LOSS_SCALE 1024.0f
