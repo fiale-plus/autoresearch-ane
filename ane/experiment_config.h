@@ -7,7 +7,7 @@
 #define SEQ 512
 #define NLAYERS 6
 // Optimizer (safe to change between runs)
-#define LEARNING_RATE 8e-4f
+#define LEARNING_RATE 5e-4f
 #define ADAM_BETA1 0.9f
 #define ADAM_BETA2 0.95f
 #define ADAM_EPS 1e-8f
@@ -15,7 +15,7 @@
 // Lower = more weight updates per wall-clock minute. With dynamic pipeline,
 // there is no recompilation cost — only the cheap weight transpose + IOSurface write.
 #define ACCUM_STEPS 12
-#define GRAD_CLIP_MAX 1.0f
+#define GRAD_CLIP_MAX 2.0f
 #define WEIGHT_DECAY 0.1f
 // LR schedule: cosine decay with linear warmup
 #define TOTAL_STEPS 3000
