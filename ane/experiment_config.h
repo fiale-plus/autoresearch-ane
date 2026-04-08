@@ -11,18 +11,15 @@
 #define ADAM_BETA1 0.9f
 #define ADAM_BETA2 0.95f
 #define ADAM_EPS 1e-8f
-// Gradient accumulation steps before Adam update + weight re-staging (~50ms).
-// Lower = more weight updates per wall-clock minute. With dynamic pipeline,
-// there is no recompilation cost — only the cheap weight transpose + IOSurface write.
-#define ACCUM_STEPS 12
-#define GRAD_CLIP_MAX 2.0f
+// v7 experiment: extended ramp with LOSS_SCALE=1024 from ecosystem research
+#define ACCUM_STEPS 2
+#define GRAD_CLIP_MAX 1.0f
 #define WEIGHT_DECAY 0.1f
 // LR schedule: cosine decay with linear warmup
 #define TOTAL_STEPS 3000
 #define LR_WARMUP_STEPS 100
 #define LR_MIN_FRAC 0.1f
-// Loss scaling: prevents FP16 gradient underflow
-// Ecosystem (Slavko) recommends 1024 for better FP16 stability — testing that
+// Loss scaling: ecosystem (Slavko) shows 1024 is better for FP16
 #define LOSS_SCALE 1024.0f
 // Logit softcapping: cap * tanh(logits/cap), prevents logit explosion
 #define SOFTCAP 30.0f
