@@ -1,0 +1,107 @@
+commit	val_loss	ane_util_pct	status	description
+1d248a4	3.747	3.6	keep	[Phase1:Adam] baseline: GQA code + embed cblas_scopy/saxpy, ACCUM=2
+10e71df	3.505	3.6	keep	[Phase1:Adam] ACCUM=4
+d5dae03	3.420	3.6	keep	[Phase1:Adam] ACCUM=6
+44483b6	3.356	3.6	keep	[Phase1:Adam] ACCUM=8
+3a9bd3c	3.306	3.6	keep	[Phase1:Adam] ACCUM=10
+c03ab14	3.286	3.6	keep	[Phase1:Adam] LR=5e-4 with ACCUM=10
+28c1be1	3.299	3.6	discard	[Phase1:Adam] LR=8e-4 too aggressive
+989401a	3.275	3.6	keep	[Phase1:Adam] WEIGHT_DECAY=0.1
+56ae776	3.223	3.6	keep	[Phase1:Adam] SOFTCAP=30.0
+ed7ddce	3.224	3.6	discard	[Phase1:Adam] EMBED_LR_SCALE=3.0 no improvement
+e67f3d2	3.200	3.6	keep	[Phase1:Adam] MATRIX_LR_SCALE=0.1
+e74d404	3.174	3.6	keep	[Phase1:Adam] ACCUM=12
+34d6d26	3.147	3.6	keep	[Phase1:Adam] ACCUM=16
+7cf5356	3.145	3.6	keep	[Phase1:Adam] ACCUM=20 plateau
+a366f96	5.382	4.5	discard	[Phase1:Adam] DIM=1024 too slow (arch reset)
+7d1e6d6	4.796	3.9	discard	[Phase1:Adam] NLAYERS=8 too slow (arch reset)
+0929cf7	3.727	3.6	keep	[Phase1b:Adam] fresh restart best hyperparams ACCUM=2
+39aa92f	3.462	3.6	keep	[Phase1b:Adam] ramp ACCUM=4
+37e8284	3.296	3.6	keep	[Phase1b:Adam] ramp ACCUM=8
+a46f421	3.192	3.6	keep	[Phase1b:Adam] ramp ACCUM=16
+599a2d4	3.132	3.6	keep	[Phase1b:Adam] ramp ACCUM=24
+6091da1	3.118	3.6	keep	[Phase1b:Adam] ramp ACCUM=32
+b4344e7	3.111	3.6	keep	[Phase1b:Adam] ACCUM=48 plateau
+5b22e9e	3.100	3.6	keep	[Phase1b:Adam] LR_MIN_FRAC=0.01
+2175f8a	3.099	3.6	keep	[Phase1b:Adam] LOSS_SCALE=512 — Adam all-time best
+6d84139	3.103	3.6	discard	[Phase1b:Adam] BETA2=0.99 slightly worse
+6cc9b26	3.127	3.6	discard	[Phase1b:Adam] GRAD_CLIP=0.5 too aggressive
+6f8a130	3.105	3.6	discard	[Phase1b:Adam] SOFTCAP=50 worse
+447f6b1	3.235	4.8	keep	[Phase2:Lion] sanity check — Lion+pipeline+vocab (resumed ckpt)
+v3_c1	4.058	3.8	keep	[Phase2b:Lion] marathon v3 fresh ACCUM=2
+v3_c2	3.596	3.7	keep	[Phase2b:Lion] marathon v3 ACCUM=4
+v3_c3	3.323	3.7	keep	[Phase2b:Lion] marathon v3 ACCUM=6
+v3_c4	3.172	3.6	keep	[Phase2b:Lion] marathon v3 ACCUM=8
+v3_c5	3.092	3.5	keep	[Phase2b:Lion] marathon v3 ACCUM=10
+v3_c6	3.079	3.6	keep	[Phase2b:Lion] marathon v3 ACCUM=12 — Lion pre-fusion best
+v3_c7	3.176	3.5	discard	[Phase2b:Lion] marathon v3 ACCUM=14 (LR decay)
+v3_c8	3.379	3.5	discard	[Phase2b:Lion] marathon v3 ACCUM=16 (diverging)
+v3_c9	3.598	3.5	discard	[Phase2b:Lion] marathon v3 ACCUM=18 (diverging)
+v4_c1	3.846621	4.9	keep	[Phase3:Lion+Fused] marathon v4 cycle 1 ACCUM=2
+v4_c2	3.334127	4.8	keep	[Phase3:Lion+Fused] marathon v4 cycle 2 ACCUM=4
+v4_c3	2.958731	4.7	keep	[Phase3:Lion+Fused] marathon v4 cycle 3 ACCUM=6
+v4_c4	2.754073	4.7	keep	[Phase3:Lion+Fused] marathon v4 cycle 4 ACCUM=8
+v4_c5	2.703128	4.8	keep	[Phase3:Lion+Fused] marathon v4 cycle 5 ACCUM=10
+v4_c6	2.859332	4.6	keep	[Phase3:Lion+Fused] marathon v4 cycle 6 ACCUM=12
+v4_c7	3.020972	4.7	keep	[Phase3:Lion+Fused] marathon v4 cycle 7 ACCUM=12
+v5_c1	3.558782	6.5	keep	[Phase4:Lion+Fused+LRfix] v5 cycle 1 ACCUM=2
+v5_c2	2.927220	6.5	keep	[Phase4:Lion+Fused+LRfix] v5 cycle 2 ACCUM=4
+v5_c3	2.625005	6.5	keep	[Phase4:Lion+Fused+LRfix] v5 cycle 3 ACCUM=6
+v5_c4	2.544993	6.3	keep	[Phase4:Lion+Fused+LRfix] v5 cycle 4 ACCUM=8
+v5_c5	2.512705	6.3	keep	[Phase4:Lion+Fused+LRfix] v5 cycle 5 ACCUM=10
+v5_c6	2.489148	6.5	keep	[Phase4:Lion+Fused+LRfix] v5 cycle 6 ACCUM=12
+v5_c7	2.492661	6.5	keep	[Phase4:Lion+Fused+LRfix] v5 cycle 7 ACCUM=12
+v5_c8	2.508373	6.5	keep	[Phase4:Lion+Fused+LRfix] v5 cycle 8 ACCUM=12
+v5_c9	2.531522	6.6	keep	[Phase4:Lion+Fused+LRfix] v5 cycle 9 ACCUM=12
+v5_c10	2.566315	6.6	keep	[Phase4:Lion+Fused+LRfix] v5 cycle 10 ACCUM=12
+v6_c1	3.580	6.2	keep	[Phase5:LOSS_SCALE=1024] v6 cycle 1 ACCUM=2
+v6_c2	2.878	6.5	keep	[Phase5:LOSS_SCALE=1024] v6 cycle 2 ACCUM=4
+v6_c3	2.611	6.3	keep	[Phase5:LOSS_SCALE=1024] v6 cycle 3 ACCUM=6
+v6_c4	2.512	6.4	keep	[Phase5:LOSS_SCALE=1024] v6 cycle 4 ACCUM=8
+v6_c5	2.480	6.4	keep	[Phase5:LOSS_SCALE=1024] v6 cycle 5 ACCUM=10
+v6_c6	2.477	6.4	keep	[Phase5:LOSS_SCALE=1024] v6 cycle 6 ACCUM=12 — LOSS_SCALE best
+v6_c7	2.496	6.3	discard	[Phase5:LOSS_SCALE=1024] v6 cycle 7 ACCUM=12 (plateau)
+v6_c8	2.504	6.5	discard	[Phase5] TOTAL=5000 warmup=50 LR_MIN=0.01
+v6_c9	2.534	6.5	discard	[Phase5] LR=8e-4 too aggressive
+v6_c10	2.580	6.3	discard	[Phase5] GRAD_CLIP=2.0 too permissive
+v7_c1	3.544	6.4	keep	[Phase5:LOSS_SCALE=1024 fresh] v7 cycle 1 ACCUM=2
+v7_c2	2.873	6.4	keep	[Phase5] v7 cycle 2 ACCUM=4
+v7_c3	2.615	6.2	keep	[Phase5] v7 cycle 3 ACCUM=6
+v7_c4	2.515	6.2	keep	[Phase5] v7 cycle 4 ACCUM=8
+v7_c5	2.487	6.2	keep	[Phase5] v7 cycle 5 ACCUM=10
+v7_c6	2.485	6.3	keep	[Phase5] v7 cycle 6 ACCUM=12
+v7_c7	2.485	6.3	discard	[Phase5] v7 cycle 7 ACCUM=14 plateau
+v7_c8	2.499	6.3	discard	[Phase5] v7 cycle 8 ACCUM=16 worse
+v8_c1	3.690	6.3	discard	[Phase6:Adam] slower steps, worse convergence
+v8_c2	3.407	6.3	discard	[Phase6:Adam] much worse than Lion
+v8_c3	3.233	6.3	discard	[Phase6:Adam] still far worse — abandon Adam
+v9_c1	3.490	6.3	keep	[Phase6:EMBED_LR=1.0+LOSS_SCALE=1024] v9 cycle 1 ACCUM=2
+v9_c2	2.870	6.3	keep	[Phase6] v9 cycle 2 ACCUM=4
+v9_c3	2.573	6.3	keep	[Phase6] v9 cycle 3 ACCUM=6
+v9_c4	2.475	6.3	keep	[Phase6] v9 cycle 4 ACCUM=12
+v9_c5	2.427	6.3	keep	[Phase6] v9 cycle 5 ACCUM=16 — BEST p6
+v9_c6	2.426	6.3	keep	[Phase6] v9 cycle 6 ACCUM=18 plateau
+v10_c1	3.479	6.3	discard	[Phase6:MATRIX_LR=0.05] worse
+v10_c2	2.912	6.3	discard	[Phase6:MATRIX_LR=0.05]
+v10_c3	2.687	6.3	discard	[Phase6:MATRIX_LR=0.05]
+v10_c4	2.590	6.3	discard	[Phase6:MATRIX_LR=0.05] worse than 0.1
+v11_c1	3.700	6.3	discard	[Phase6:WD=0.05 straight ACCUM=16] bad
+v12_c1	3.490	6.3	keep	[Phase6:EMBED_LR=1.0 repro] v12 cycle 1 ACCUM=2
+v12_c2	2.867	6.3	keep	[Phase6] v12 cycle 2 ACCUM=4
+v12_c3	2.577	6.3	keep	[Phase6] v12 cycle 3 ACCUM=6
+v12_c4	2.478	6.3	keep	[Phase6] v12 cycle 4 ACCUM=8
+v12_c5	2.442	6.3	keep	[Phase6] v12 cycle 5 ACCUM=10
+v12_c6	2.431	6.3	keep	[Phase6] v12 cycle 6 ACCUM=12 — REPRODUCED BEST
+v12_c7	2.431	6.3	keep	[Phase6] v12 cycle 7 ACCUM=14 stable
+v12_c8	2.437	6.3	discard	[Phase6] WD=0.05 slightly worse
+v12_c9	2.478	6.3	discard	[Phase6] WD=0.2 worse
+v12_c10	2.534	6.3	discard	[Phase6] SOFTCAP=20 worse
+v12_c11	2.541	6.3	discard	[Phase6] SOFTCAP=50 worse
+v13_c1	3.490	6.3	keep	[Phase7:Final definitive] v13 cycle 1 ACCUM=2
+v13_c2	2.865	6.4	keep	[Phase7] v13 cycle 2 ACCUM=4
+v13_c3	2.582	6.3	keep	[Phase7] v13 cycle 3 ACCUM=6
+v13_c4	2.479	6.3	keep	[Phase7] v13 cycle 4 ACCUM=8
+v13_c5	2.443	6.3	keep	[Phase7] v13 cycle 5 ACCUM=10
+v13_c6	2.435	6.3	keep	[Phase7] v13 cycle 6 ACCUM=12
+v13_c7	2.432	6.3	keep	[Phase7] v13 cycle 7 ACCUM=14 — BEST FINAL
+v13_c8	2.438	6.3	keep	[Phase7] v13 cycle 8 ACCUM=16 slight worse
