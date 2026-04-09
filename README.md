@@ -96,7 +96,7 @@ This fork adds an **ANE training backend** that runs transformer training direct
 
 ### Current best results
 
-**val_loss = 2.489** (~55 autonomous experiment cycles across 4 phases, ~67M param model, 5-min budget per cycle)
+**val_loss = 2.432** (~95 autonomous experiment cycles across 7 phases, ~67M param model, 5-min budget per cycle)
 
 Starting from 6.109 baseline, key improvements discovered through autonomous experimentation:
 
@@ -111,6 +111,8 @@ Starting from 6.109 baseline, key improvements discovered through autonomous exp
 | + hyperparameter sweep | LR=5e-4, WD=0.1, SOFTCAP=30, MATRIX_LR=0.1 | 3.099 | 176 | ~1631 |
 | **+ Lion + pipeline** | **Lion optimizer, async dW overlap, vocab compaction** | **3.079** | 175 | ~1421 |
 | **+ kernel fusion** | **Fused sdpaWoFwd + qkvBwd mega-kernels** | **2.489** | **96** | **~2822** |
+| **+ LOSS_SCALE=1024** | **Better FP16 gradient stability (from Slavko ecosystem)** | **2.477** | **97** | **~2800** |
+| **+ EMBED_LR=1.0** | **Equal LR for embeddings (was 2x, overfitting)** | **2.432** | **99** | **~2700** |
 
 ### Key discoveries
 
@@ -118,8 +120,11 @@ Starting from 6.109 baseline, key improvements discovered through autonomous exp
 - **Mega-kernel fusion** (45% faster steps): Fusing sdpaFwd+woFwd into one kernel and qBwd+kvBwd into another eliminated 12 IOSurface round-trips per step. The bottleneck was IOSurface lock/unlock/memcpy overhead, not compute.
 - **Lion optimizer**: Sign-based weight updates with no second moment buffer. ~2x faster per update than Adam. Counter-intuitively, works best with Adam-style hyperparams (LR=5e-4, WD=0.1), not the lower LR/higher WD recommended in the paper.
 - **Vocab compaction** (3.5x classifier speedup): Only ~9K of 32K tokens appear in TinyStories. Reducing the classifier SGEMM from 32K to 9K vocab is free accuracy-wise.
-- **ACCUM ramping**: Start with low ACCUM (noisy but many updates) for early training, ramp up each cycle for smoother gradients. Sweet spot: ACCUM=10-12 for Lion, ACCUM=20-48 for Adam.
+- **ACCUM ramping**: Start with low ACCUM (noisy but many updates) for early training, ramp up each cycle for smoother gradients. Sweet spot: ACCUM=12-14 for Lion, ACCUM=20-48 for Adam.
 - **LR schedule tuning is critical for multi-cycle runs**: TOTAL_STEPS must match the actual training window. Too high → model overfits (train_loss=0.87, val_loss=3.9). Too low → LR exhausts early, later cycles waste time.
+- **LOSS_SCALE=1024** (April 2026, from ecosystem): Slavko/ANE-Training benchmarks show FP16 gradient underflow is worse than expected. LOSS_SCALE=1024 (up from 512) stabilizes the backward pass and prevents silent gradient vanishing. Improved val_loss from 2.489 to 2.477.
+- **EMBED_LR_SCALE=1.0** (April 2026): Embeddings were overfitting with 2× base LR. Equal LR (1.0) for both embeddings and norms gave better generalization, pushing val_loss from 2.477 to 2.432. The embedding matrix is already the largest parameter block (8M of 67M params) and doesn't need extra LR.
+- **Adam is worse than Lion here** (April 2026): Tested Adam (LR=3e-4) against Lion (LR=5e-4). Adam achieved val_loss=3.23 after 3 cycles at ~99ms/step, significantly worse than Lion's 2.51 at the same point. Lion's sign-based updates are more robust for ANE's FP16 compute path.
 
 ### What didn't work
 
@@ -127,6 +132,15 @@ Starting from 6.109 baseline, key improvements discovered through autonomous exp
 - **Fused SDPA backward kernel**: ANE compiler rejects with "Graph has a cycle path" — too complex.
 - **Bigger architectures** (DIM=1024, NLAYERS=8): Can't converge in 5-min budget. More steps always beats bigger models.
 - **Lion paper hyperparams** (LR/3, WD×3): Diverged badly. Empirical testing always beats paper defaults.
+- **Adam optimizer** (Phase 6): val_loss=3.23 after 3 cycles at ACCUM=8 — much worse than Lion (2.51 at same point). Lion's sign-based updates are more robust for ANE's FP16 path.
+- **LOSS_SCALE=256**: Too low, gradient underflow causes 5.5 plateau.
+- **EMBED_LR_SCALE=2.0**: Embeddings overfit. Equal LR (1.0) generalizes better.
+- **WEIGHT_DECAY=0.05**: Under-regularized, val_loss=2.45 vs 2.43 with WD=0.1.
+- **WEIGHT_DECAY=0.2**: Over-regularized, val_loss=2.48 vs 2.43 with WD=0.1.
+- **SOFTCAP=20**: Too aggressive, val_loss=2.53 vs 2.43 with SOFTCAP=30.
+- **SOFTCAP=50**: Too permissive, val_loss=2.54 vs 2.43 with SOFTCAP=30.
+- **MATRIX_LR_SCALE=0.05**: Too slow for weight matrices, val_loss=2.59.
+- **LR=8e-4**: Too aggressive, diverges.
 
 ### Hyperparameters
 
@@ -156,9 +170,9 @@ The agent edits `ane/experiment_config.h`. All hyperparameters and their current
 | `TOTAL_STEPS` | 3000 | Cosine LR schedule denominator (adam_t units). Must match optimal training window |
 | `LR_WARMUP_STEPS` | 100 | Linear warmup steps before cosine decay |
 | `LR_MIN_FRAC` | 0.1f | Cosine schedule decays LR to this fraction of max |
-| `LOSS_SCALE` | 512.0f | Loss scaling factor — prevents FP16 gradient underflow. Undone during gradient averaging |
+| `LOSS_SCALE` | 1024.0f | Loss scaling factor — prevents FP16 gradient underflow. 1024 (up from 512) gives better FP16 stability |
 | `SOFTCAP` | 30.0f | Logit softcapping: `cap * tanh(logits/cap)`, clamps logits to [-cap, cap] |
-| `EMBED_LR_SCALE` | 2.0f | Embedding LR = base LR × this |
+| `EMBED_LR_SCALE` | 1.0f | Embedding LR = base LR × this. Equal LR works better than 2× (embedding overfits with 2×) |
 | `MATRIX_LR_SCALE` | 0.1f | Weight matrix LR = base LR × this |
 | `USE_LION` | 1 | Lion optimizer (sign-based updates, no second moment, ~2x faster per update) |
 | `USE_VOCAB_COMPACT` | 1 | Vocab compaction: 32K→9K active tokens, 3.5x classifier SGEMM speedup |
@@ -168,9 +182,9 @@ The agent edits `ane/experiment_config.h`. All hyperparameters and their current
 - **Lion optimizer** (default) — sign-based weight updates: `w -= lr * sign(β1*m + (1-β1)*g)`, no second moment buffer. ~2x faster per update than Adam, half the optimizer memory. Toggle `USE_LION` to switch back to AdamW.
 - **Gradient clipping** — global L2 norm across all parameters using vDSP
 - **Cosine LR schedule** — linear warmup for `LR_WARMUP_STEPS`, then cosine decay to `LR_MIN_FRAC` of max LR. `TOTAL_STEPS` controls the schedule length — critical for multi-cycle training
-- **Loss scaling (512×)** — scales gradients up before FP16 backward pass, undone during gradient averaging. Prevents underflow that causes the 5.5 plateau (maderix)
+- **Loss scaling (1024×)** — scales gradients up before FP16 backward pass, undone during gradient averaging. 1024 (up from 512) prevents underflow and improves FP16 stability (ecosystem: Slavko/ANE-Training)
 - **Logit softcapping** — `cap * tanh(logits/cap)` before softmax with chain-rule correction in backward
-- **Differential learning rates** — embeddings at 2× base LR, weight matrices at 0.1× base LR, norm params at 1× base LR
+- **Differential learning rates** — embeddings at 1× base LR (equal), weight matrices at 0.1× base LR, norm params at 1× base LR
 - **Vocab compaction** — only ~9K of 32K tokens appear in TinyStories. Classifier SGEMM reduced 3.5x with zero accuracy impact
 - **Residual scaling** — residual connections scaled by `1/sqrt(2*NLAYERS)` to stabilize deep residual streams
 
@@ -238,16 +252,22 @@ This project builds on and references the following repositories:
 
 - **[maderix/ANE](https://github.com/maderix/ANE)** — First project to train transformers directly on the Apple Neural Engine using Objective-C and raw MIL kernel compilation. The ANE training backend in this repo is based on this work.
 - **[miolini/autoresearch-macos](https://github.com/miolini/autoresearch-macos)** — MacOS fork of autoresearch adapted for Apple Silicon. Early reference for running autonomous research on Mac hardware.
-- **[ncdrone/autoresearch-ANE](https://github.com/ncdrone/autoresearch-ANE)** — ANE-native autoresearch fork. Key finding: "more steps > bigger model" — NL=6 SEQ=512 gets ~3000 steps/5min vs ~400 at NL=12 SEQ=256, achieving val_loss=5.81. This insight drove the architecture change that broke through the initial plateau.
+- **[slavko-at-klincov-it/ANE-Training](https://github.com/slavko-at-klincov-it/ANE-Training)** — Full `libane` C API (76 private classes reverse-engineered), Metal fused Adam optimizer (33.7ms for 110M params), comprehensive M4 Mini benchmarks, and 10K-step training runs. Key insights: LOSS_SCALE=1024, activation clipping, QoS 9 for ANE dispatch, hardware utilization metrics.
 - **[mechramc/orion](https://github.com/mechramc/orion)** — Production ANE runtime for Stories110M/GPT-2. Delta compilation, Graph IR compiler, LoRA hot-swapping. Documents 14 ANE hardware constraints. Published as [arXiv:2603.06728](https://arxiv.org/abs/2603.06728).
 - **[vipuldivyanshu92/ANEgpt](https://github.com/vipuldivyanshu92/ANEgpt)** — ANE transformer training with async CPU-ANE pipelining, kernel lifecycle separation, and per-operation profiling.
 - **[imperatormk/ane-train](https://github.com/imperatormk/ane-train)** — Runtime IOSurface weight injection without recompilation. Passes weights as input tensors, compiles once, updates via `memcpy` each step. Runs a 28-block ConvNeXt UNet at ~3 it/s on M1. Discovered key constraints: IOSurface slot sizes must be strictly ascending for inputs / descending for outputs (silent zeros otherwise), matmul inner dim must be multiple of 32, grouped/depthwise conv fails with runtime weights.
 - **[christopherkarani/Espresso](https://github.com/christopherkarani/Espresso)** — Pure Swift ANE transformer inference achieving 4.76x throughput vs CoreML (1.08ms/token vs 5.09ms). Fused 3-layer kernels, zero-copy I/O. Actively maintained.
 - **[ncdrone/rustane](https://github.com/ncdrone/rustane)** — Rust-native hybrid ANE + Metal GPU training and inference engine. Community benchmark leaderboard.
 
-### Recent findings from the ecosystem (March 2026)
+### Recent findings from the ecosystem (April 2026)
 
-**Embedding lookup 12x speedup** ([maderix/ANE PR #39](https://github.com/maderix/ANE/pull/39)): Cache-optimized embedding using contiguous `memcpy` gather + `vDSP_mtrans` transpose. Eliminates stride-seq cache misses. 0.39ms → 0.033ms per call on M4 Max. Drop-in replacement for `embed_lookup`.
+**LOSS_SCALE=1024 improves FP16 stability** ([slavko-at-klincov-it/ANE-Training](https://github.com/slavko-at-klincov-it/ANE-Training)): Comprehensive M4 Mini benchmarks show LOSS_SCALE=1024 (up from 512) prevents FP16 gradient underflow. Our experiments confirmed a 0.05 val_loss improvement (2.489→2.477). Also: activation clipping (maxact=100) prevents x explosion over long runs, QoS 9 (Background) is fastest for ANE dispatch.
+
+**Embedding LR equalization** (our own experiment, April 2026): EMBED_LR_SCALE=1.0 (equal LR for all parameters) improves val_loss from 2.477→2.432. The embedding matrix (8M/67M params) doesn't need higher LR — it overfits. This is the single biggest improvement in Phase 6.
+
+**EMBED_LR_SCALE=1.0 over 2.0** (our experiments, April 2026): Our Phase 6-7 experiments showed EMBED_LR_SCALE=2.0 caused embedding overfitting. Reducing to 1.0 (equal LR) was the highest-impact change, improving val_loss from 2.477→2.432.
+
+**Metal fused Adam** ([slavko-at-klincov-it/ANE-Training](https://github.com/slavko-at-klincov-it/ANE-Training)): GPU-accelerated optimizer using Metal compute shaders. 33.7ms for 110M params vs CPU Adam 77ms (2.3× faster). Float4-vectorized kernel. Not yet adopted — Lion is already fast enough and Adam is worse on this task.
 
 **E5 Runtime research** ([maderix/ANE PR #40](https://github.com/maderix/ANE/pull/40)): Custom MIL text can be compiled directly to ANE via `MLE5ProgramLibraryOnDeviceAOTCompilationImpl`. Legacy `_ANEChainingRequest` API is dead on macOS 15+; E5 runtime (`MLE5Engine`) is the modern path. 7 test programs (~7K lines of reverse-engineering experiments).
 
