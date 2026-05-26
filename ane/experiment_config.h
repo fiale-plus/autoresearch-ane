@@ -7,12 +7,12 @@
 #define SEQ 512
 #define NLAYERS 6
 // Optimizer (safe to change between runs)
-#define LEARNING_RATE 5e-4f
+#define LEARNING_RATE 3.8e-4f
 #define ADAM_BETA1 0.9f
 #define ADAM_BETA2 0.95f
 #define ADAM_EPS 1e-8f
 // Best ACCUM found: 12-14 with LOSS_SCALE=1024, EMBED_LR=1.0
-#define ACCUM_STEPS 12
+#define ACCUM_STEPS 2
 #define GRAD_CLIP_MAX 1.0f
 #define WEIGHT_DECAY 0.1f
 // LR schedule: cosine decay with linear warmup
