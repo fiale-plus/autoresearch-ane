@@ -12,6 +12,9 @@ To set up a new experiment, work with the user to:
    - `program_ane.md` — this file, your instructions.
    - `ane/experiment_config.h` — the file you modify. Architecture and optimizer hyperparameters.
    - `harness_ane.py` — the orchestrator. Do not modify.
+   - `ane/autoresearch.md` — local experiment history and current best-known config.
+   - `README.md` → Knowledge sources section — current ecosystem references and constraints.
+   - Latest `updates/knowledge-sources-*.md` — dated source scan; as of 2026-06-25, read `updates/knowledge-sources-2026-06-25.md`.
 4. **Verify data exists**: Check that `ane/tinystories_data00.bin` exists. If not, run `bash ane/download_data.sh`.
 5. **Verify compilation**: Run `make -C ane train_ane` to confirm the binary compiles.
 6. **Initialize results.tsv**: Create `results.tsv` with just the header row. The baseline will be recorded after the first run.
@@ -45,6 +48,8 @@ Each experiment runs on the Apple Neural Engine. The training binary runs for a 
 - Residual connections are scaled by `1/sqrt(2*NLAYERS)` — keep this in mind when changing NLAYERS.
 
 **Simplicity criterion**: All else being equal, simpler is better. A small improvement from a radical architecture change that loses checkpoint progress may not be worth it compared to a hyperparameter tweak.
+
+**Current best-known ANE result (2026-06-25)**: `val_loss=2.320954` with Lion + `LOSS_SCALE=1024` + `EMBED_LR_SCALE=1.0` + `ACCUM_STEPS=2`. Treat this as the sticky baseline unless a new run proves otherwise. The June source scan also flags dispatch-count reduction, fused optimizer updates, embedding lookup speedups, and shape/tiling discipline as the most promising non-config improvement paths.
 
 **The first run**: Your very first run should always be to establish the baseline, so you will run the training script as is.
 
