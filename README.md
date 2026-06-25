@@ -248,34 +248,43 @@ The original CUDA files (`prepare.py`, `train.py`, `program.md`) remain untouche
 
 ## Knowledge sources
 
+Detailed dated scans live under `updates/`; latest: [`updates/knowledge-sources-2026-06-25.md`](updates/knowledge-sources-2026-06-25.md).
+
 This project builds on and references the following repositories:
 
 - **[maderix/ANE](https://github.com/maderix/ANE)** — First project to train transformers directly on the Apple Neural Engine using Objective-C and raw MIL kernel compilation. The ANE training backend in this repo is based on this work.
 - **[miolini/autoresearch-macos](https://github.com/miolini/autoresearch-macos)** — MacOS fork of autoresearch adapted for Apple Silicon. Early reference for running autonomous research on Mac hardware.
-- **[slavko-at-klincov-it/ANE-Training](https://github.com/slavko-at-klincov-it/ANE-Training)** — Full `libane` C API (76 private classes reverse-engineered), Metal fused Adam optimizer (33.7ms for 110M params), comprehensive M4 Mini benchmarks, and 10K-step training runs. Key insights: LOSS_SCALE=1024, activation clipping, QoS 9 for ANE dispatch, hardware utilization metrics.
-- **[mechramc/orion](https://github.com/mechramc/orion)** — Production ANE runtime for Stories110M/GPT-2. Delta compilation, Graph IR compiler, LoRA hot-swapping. Documents 14 ANE hardware constraints. Published as [arXiv:2603.06728](https://arxiv.org/abs/2603.06728).
+- **[slavko-at-klincov-it/ANE-Training](https://github.com/slavko-at-klincov-it/ANE-Training)** — Full `libane` C API, dynamic spatial packing, Stories-110M training results, comprehensive time-split benchmarks, and Metal fused optimizer patterns. Key insights: `LOSS_SCALE=1024`, activation clipping, compile-once execution, and CPU/AMX/IOSurface overhead awareness.
+- **[mechramc/orion](https://github.com/mechramc/orion)** — Production ANE runtime for Stories110M/GPT-2. Delta compilation, Graph IR compiler, LoRA hot-swapping. Documents ANE hardware constraints. Published as [arXiv:2603.06728](https://arxiv.org/abs/2603.06728).
 - **[vipuldivyanshu92/ANEgpt](https://github.com/vipuldivyanshu92/ANEgpt)** — ANE transformer training with async CPU-ANE pipelining, kernel lifecycle separation, and per-operation profiling.
-- **[imperatormk/ane-train](https://github.com/imperatormk/ane-train)** — Runtime IOSurface weight injection without recompilation. Passes weights as input tensors, compiles once, updates via `memcpy` each step. Runs a 28-block ConvNeXt UNet at ~3 it/s on M1. Discovered key constraints: IOSurface slot sizes must be strictly ascending for inputs / descending for outputs (silent zeros otherwise), matmul inner dim must be multiple of 32, grouped/depthwise conv fails with runtime weights.
-- **[christopherkarani/Espresso](https://github.com/christopherkarani/Espresso)** — Pure Swift ANE transformer inference achieving 4.76x throughput vs CoreML (1.08ms/token vs 5.09ms). Fused 3-layer kernels, zero-copy I/O. Actively maintained.
-- **[ncdrone/rustane](https://github.com/ncdrone/rustane)** — Rust-native hybrid ANE + Metal GPU training and inference engine. Community benchmark leaderboard.
+- **[imperatormk/ane-train](https://github.com/imperatormk/ane-train)** — Runtime IOSurface weight injection without recompilation. Discovered key constraints: IOSurface slot sizes must be strictly ascending for inputs / descending for outputs, matmul inner dim must be multiple of 32, grouped/depthwise conv fails with runtime weights.
+- **[christopherkarani/Espresso](https://github.com/christopherkarani/Espresso)** — Pure Swift ANE transformer inference. Useful reference for fused kernels, zero-copy I/O, Stories distillation, and Swift-side ANE runtime patterns.
+- **[ncdrone/rustane](https://github.com/ncdrone/rustane)** — Rust-native hybrid ANE + Metal GPU training and inference engine. Reports training validation up to 5B parameters and forward-only probes up to 30B; strongest current reference for scale/shape cliffs.
+- **[jmanhype/ane-lora-training](https://github.com/jmanhype/ane-lora-training)** — Hybrid MLX + ANE LoRA system with fused 4-matmul gradient dispatch, persistent ANE bridge, and packed-IOSurface dynamic matmul.
+- **[harsha-gouru/apple-neural-engine-notes](https://github.com/harsha-gouru/apple-neural-engine-notes)** — Research notes on ANE architecture fit, software overhead, SRAM heuristics, and hybrid runtime tradeoffs.
+- **[harsha-gouru/ane-gmlp-research](https://github.com/harsha-gouru/ane-gmlp-research)** — gMLP on-device ANE training notes; useful evidence for tensor-layout constraints, residual-path compatibility, and adapter-style training.
 
-### Recent findings from the ecosystem (April 2026)
+### Recent findings from the ecosystem (June 2026)
 
-**LOSS_SCALE=1024 improves FP16 stability** ([slavko-at-klincov-it/ANE-Training](https://github.com/slavko-at-klincov-it/ANE-Training)): Comprehensive M4 Mini benchmarks show LOSS_SCALE=1024 (up from 512) prevents FP16 gradient underflow. Our experiments confirmed a 0.05 val_loss improvement (2.489→2.477). Also: activation clipping (maxact=100) prevents x explosion over long runs, QoS 9 (Background) is fastest for ANE dispatch.
+**Current local best** (our ANE autoresearch, June 2026): `val_loss=2.320954` with Lion + `LOSS_SCALE=1024` + `EMBED_LR_SCALE=1.0` + `ACCUM_STEPS=2`. This supersedes the April 2.432 baseline; checkpoint trajectory matters, so confirmatory reruns should keep the same anchor before broad sweeps.
 
-**Embedding LR equalization** (our own experiment, April 2026): EMBED_LR_SCALE=1.0 (equal LR for all parameters) improves val_loss from 2.477→2.432. The embedding matrix (8M/67M params) doesn't need higher LR — it overfits. This is the single biggest improvement in Phase 6.
+**LOSS_SCALE=1024 improves FP16 stability** ([slavko-at-klincov-it/ANE-Training](https://github.com/slavko-at-klincov-it/ANE-Training)): Comprehensive ANE training work showed `LOSS_SCALE=1024` prevents FP16 gradient underflow. Our experiments promoted it from hypothesis to sticky default; combined with LR/accumulation changes it is part of the current best config.
 
-**EMBED_LR_SCALE=1.0 over 2.0** (our experiments, April 2026): Our Phase 6-7 experiments showed EMBED_LR_SCALE=2.0 caused embedding overfitting. Reducing to 1.0 (equal LR) was the highest-impact change, improving val_loss from 2.477→2.432.
+**Embedding LR equalization** (our experiments, April–June 2026): `EMBED_LR_SCALE=1.0` beats higher embedding LR. The embedding matrix overfits with a 2× scale; equal LR was the highest-impact Phase 6 change and remains in the 2.320954 best run.
 
-**Metal fused Adam** ([slavko-at-klincov-it/ANE-Training](https://github.com/slavko-at-klincov-it/ANE-Training)): GPU-accelerated optimizer using Metal compute shaders. 33.7ms for 110M params vs CPU Adam 77ms (2.3× faster). Float4-vectorized kernel. Not yet adopted — Lion is already fast enough and Adam is worse on this task.
+**Accumulation trajectory sensitivity** (our experiments, June 2026): From the anchored checkpoint, lowering accumulation to `ACCUM_STEPS=2` improved best val_loss to 2.320954. Fresh restarts did not reproduce the same path, so future autoresearch should treat checkpoint lineage as an experimental variable.
 
-**E5 Runtime research** ([maderix/ANE PR #40](https://github.com/maderix/ANE/pull/40)): Custom MIL text can be compiled directly to ANE via `MLE5ProgramLibraryOnDeviceAOTCompilationImpl`. Legacy `_ANEChainingRequest` API is dead on macOS 15+; E5 runtime (`MLE5Engine`) is the modern path. 7 test programs (~7K lines of reverse-engineering experiments).
+**Rust ANE scale probes** ([ncdrone/rustane](https://github.com/ncdrone/rustane)): Rustane reports full training validation through 5B parameters and forward-only probes through 30B on M4 Max 128GB. The actionable lesson for this repo is shape discipline: wide/shallow vs deep/narrow crossovers matter, and dim=5120 is an efficiency cliff.
 
-**Mixed weight type limit** ([mechramc/orion issue #3](https://github.com/mechramc/orion/issues/3)): ANE programs with both RMSNorm and linear weights fail at 16 total weights. Pure linear can have 16. Each norm reduces the limit by 1. Practical limit: ~3 FFN layers per ANE mega-kernel.
+**Fused LoRA gradient dispatch** ([jmanhype/ane-lora-training](https://github.com/jmanhype/ane-lora-training)): Fusing all four LoRA gradient matmuls into one ANE dispatch cuts module latency (0.36ms fused vs 0.72ms unfused) and demonstrates persistent bridge + packed IOSurface dynamic matmul. Not directly a full-training drop-in, but reinforces dispatch-count reduction as a breakthrough path.
 
-**M3 Ultra 512ch constraint** ([maderix/ANE issue #42](https://github.com/maderix/ANE/issues/42)): 512 channels is the ONLY valid channel count on M3 Ultra. Everything else fails with -4 or -3. Peak sustained: 8.77 TFLOPS at 128x conv depth.
+**Metal fused optimizer path** ([slavko-at-klincov-it/ANE-Training](https://github.com/slavko-at-klincov-it/ANE-Training)): Metal fused Adam reduced optimizer overhead in another ANE training stack. For this repo the analogous Tier-2 idea is a fused Metal Lion update kernel, since Lion is the winning optimizer here.
 
-**Security fix needed** ([maderix/ANE PR #45](https://github.com/maderix/ANE/pull/45)): Untrusted model config fields (`n_layers`, `dim`, `hidden_dim`) can cause OOB writes and NULL deref. Bounds checking required after reading Config from disk.
+**ANE architecture fit matters more than parameter count** ([harsha-gouru/apple-neural-engine-notes](https://github.com/harsha-gouru/apple-neural-engine-notes), [harsha-gouru/ane-gmlp-research](https://github.com/harsha-gouru/ane-gmlp-research)): Software overhead, tensor layout, residual compatibility, and SRAM/tiling constraints dominate many runs. Future non-config research should consider bounded attention, gMLP, recurrent/state-space, or adapter/frozen-base variants rather than only scaling vanilla GPT blocks.
+
+**E5 Runtime research** ([maderix/ANE PR #40](https://github.com/maderix/ANE/pull/40)): Custom MIL text can be compiled directly to ANE via `MLE5ProgramLibraryOnDeviceAOTCompilationImpl`. Legacy `_ANEChainingRequest` API is dead on macOS 15+; E5 runtime (`MLE5Engine`) is the modern path.
+
+**Open maderix constraints/fixes** ([maderix/ANE](https://github.com/maderix/ANE)): PR #39 embedding speedup remains a concrete Tier-2 port candidate; issue #42 confirms the M3 Ultra 512-channel constraint; PR #45 documents bounds-checking fixes needed for untrusted model configs.
 
 ### ANE hardware constraints (compiled from ecosystem)
 
@@ -285,6 +294,8 @@ This project builds on and references the following repositories:
 | Mixed weight limit: 16 - n_norms | mechramc #3 | Limits mega-kernel layer count |
 | IOSurface slots must be ascending (in) / descending (out) | imperatormk | Silent zeros on violation |
 | Matmul inner dim must be multiple of 32 | imperatormk | Silent zeros on violation |
+| Spatial/output dims should be >=16 and multiple of 16 | jmanhype | Avoid dynamic matmul / conv packing failures |
+| Avoid dim=5120-class ANE efficiency cliffs | rustane | Prevent severe tiling/throughput regressions |
 | ~100 kernel compilations before process restart needed | our experiments | ANECompilerService daemon leak |
 | Thermal throttle after ~60 min continuous use (+60% step time) | our experiments | Plan for cooling breaks |
 | `reduce_sum` on channel dim requires reshape to spatial first | our experiments | RMSNorm fusion crashes |
