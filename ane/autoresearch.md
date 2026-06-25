@@ -64,6 +64,8 @@
 - Result: `val_loss 2.644823`, `train_loss 2.964848`, `steps 2916`, `ms_per_step 94.6`, `ane_util_pct 6.6`
 - Verdict: keep for now, but not an all-time best
 
-## Next hypothesis
-1. Revert `WEIGHT_DECAY` to `0.10` and stop sweeping this neighborhood; it appears unstable.
-2. If another cycle is needed, return to the best-known config and re-run a clean confirmatory cycle.
+## Source-informed next hypotheses (updated 2026-06-25)
+1. Keep the current best-known config as the sticky baseline: Lion + `LOSS_SCALE=1024` + `EMBED_LR_SCALE=1.0` + `ACCUM_STEPS=2` + `WEIGHT_DECAY=0.10`.
+2. First confirm robustness from the same checkpoint trajectory; the fresh-restart cycle showed that checkpoint lineage is an experimental variable.
+3. Config-only follow-ups: small, single-variable probes around accumulation and LR schedule. Avoid broad weight-decay neighborhood sweeps unless a stronger hypothesis appears.
+4. Infra/code follow-ups from `README.md` and `updates/knowledge-sources-2026-06-25.md`: fused Metal Lion updates, embedding lookup speedup (`maderix/ANE` PR #39), dispatch-count reduction / compile-once discipline (`jmanhype/ane-lora-training`, `rustane`), and shape/tiling probes before large architecture changes.
