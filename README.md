@@ -248,7 +248,7 @@ The original CUDA files (`prepare.py`, `train.py`, `program.md`) remain untouche
 
 ## Knowledge sources
 
-Detailed dated scans live under `updates/`; latest: [`updates/knowledge-sources-2026-06-25.md`](updates/knowledge-sources-2026-06-25.md).
+Detailed dated scans live under `updates/`; latest: [`updates/knowledge-sources-2026-08-20.md`](updates/knowledge-sources-2026-08-20.md).
 
 This project builds on and references the following repositories:
 
@@ -264,7 +264,7 @@ This project builds on and references the following repositories:
 - **[harsha-gouru/apple-neural-engine-notes](https://github.com/harsha-gouru/apple-neural-engine-notes)** — Research notes on ANE architecture fit, software overhead, SRAM heuristics, and hybrid runtime tradeoffs.
 - **[harsha-gouru/ane-gmlp-research](https://github.com/harsha-gouru/ane-gmlp-research)** — gMLP on-device ANE training notes; useful evidence for tensor-layout constraints, residual-path compatibility, and adapter-style training.
 
-### Recent findings from the ecosystem (June 2026)
+### Recent findings from the ecosystem (June–August 2026)
 
 **Current local best** (our ANE autoresearch, June 2026): `val_loss=2.320954` with Lion + `LOSS_SCALE=1024` + `EMBED_LR_SCALE=1.0` + `ACCUM_STEPS=2`. This supersedes the April 2.432 baseline; checkpoint trajectory matters, so confirmatory reruns should keep the same anchor before broad sweeps.
 
@@ -281,6 +281,10 @@ This project builds on and references the following repositories:
 **Metal fused optimizer path** ([slavko-at-klincov-it/ANE-Training](https://github.com/slavko-at-klincov-it/ANE-Training)): Metal fused Adam reduced optimizer overhead in another ANE training stack. For this repo the analogous Tier-2 idea is a fused Metal Lion update kernel, since Lion is the winning optimizer here.
 
 **ANE architecture fit matters more than parameter count** ([harsha-gouru/apple-neural-engine-notes](https://github.com/harsha-gouru/apple-neural-engine-notes), [harsha-gouru/ane-gmlp-research](https://github.com/harsha-gouru/ane-gmlp-research)): Software overhead, tensor layout, residual compatibility, and SRAM/tiling constraints dominate many runs. Future non-config research should consider bounded attention, gMLP, recurrent/state-space, or adapter/frozen-base variants rather than only scaling vanilla GPT blocks.
+
+**August 2026 bounded probe** (our ANE autoresearch): Three five-minute probes from the preserved 2.320954 checkpoint (`ACCUM_STEPS=1`, `LEARNING_RATE=3.6e-4`, and `3.7e-4`) reached 2.401719, 2.346754, and 2.348575 respectively. All were discarded; the best configuration remains unchanged.
+
+**Apple platform guidance** ([WWDC26 machine-learning guide](https://developer.apple.com/wwdc26/guides/machine-learning/)): Apple now positions MLX for Apple-silicon research/training and Core AI for on-device model loading, specialization, and inference. The public guide does not expose general-purpose ANE backpropagation, so the reverse-engineered backend remains a research path rather than a replacement for a supported API.
 
 **E5 Runtime research** ([maderix/ANE PR #40](https://github.com/maderix/ANE/pull/40)): Custom MIL text can be compiled directly to ANE via `MLE5ProgramLibraryOnDeviceAOTCompilationImpl`. Legacy `_ANEChainingRequest` API is dead on macOS 15+; E5 runtime (`MLE5Engine`) is the modern path.
 

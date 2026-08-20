@@ -10,6 +10,13 @@
 - Result: `val_loss 2.320954`, `train_loss 1.880684`, `steps 2270`, `ms_per_step 93.7`, `ane_util_pct 6.7`
 - Verdict: **keep**; new best and materially better than the prior 2.432 baseline
 
+## Latest local cycle (2026-08-20)
+- Change: bounded probes from a preserved copy of the 2.320954 checkpoint: `ACCUM_STEPS 2 -> 1`, then `LEARNING_RATE 3.8e-4f -> 3.6e-4f`, then `3.7e-4f`.
+- Context: each probe used `ANE_WALL_TIME=300`; the anchor checkpoint was restored before every probe so candidate trajectories were comparable.
+- Results: `2.401719` (`ACCUM=1`, 1123 steps, 137.7 ms/step), `2.346754` (`LR=3.6e-4`, 2137 steps, 98.4 ms/step), and `2.348575` (`LR=3.7e-4`, 2174 steps, 97.0 ms/step).
+- Verdict: **discard all three**; the retained configuration remains unchanged.
+
+
 ## Prior local cycle
 - Change: `ACCUM_STEPS 7 -> 4` (from the fresh-restart checkpoint; best-known LR/WD/LR_MIN unchanged)
 - Context: resumed from the fresh anchor checkpoint to test lower effective batch / update frequency
