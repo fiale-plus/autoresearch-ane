@@ -96,7 +96,7 @@ This fork adds an **ANE training backend** that runs transformer training direct
 
 ### Current best results
 
-**val_loss = 1.800504** (August 2026: SGDR warm restarts + 8-shard dataset on top of ~95 cycles across 7 phases; ~67M param model, 5-min budget per cycle. Previous milestones: 2.432 April, 2.320954 June.)
+**val_loss = 1.659077** (August 2026: full 50-shard TinyStories dataset, SGDR warm restarts; ~67M-param model, 5-min budget per cycle. Previous milestones: 2.432 April, 2.320954 June, 1.800504 on 8 shards.)
 
 Starting from 6.109 baseline, key improvements discovered through autonomous experimentation:
 
@@ -113,6 +113,7 @@ Starting from 6.109 baseline, key improvements discovered through autonomous exp
 | **+ kernel fusion** | **Fused sdpaWoFwd + qkvBwd mega-kernels** | **2.489** | **96** | **~2822** |
 | **+ LOSS_SCALE=1024** | **Better FP16 gradient stability (from Slavko ecosystem)** | **2.477** | **97** | **~2800** |
 | **+ EMBED_LR=1.0** | **Equal LR for embeddings (was 2x, overfitting)** | **2.432** | **99** | **~2700** |
+| **+ SGDR + full data** | **Warm restarts + all 50 shards (~1.025B tokens)** | **1.659** | **158–173** | **~1200–1300** |
 
 ### Key discoveries
 
@@ -122,8 +123,9 @@ Starting from 6.109 baseline, key improvements discovered through autonomous exp
 - **Vocab compaction** (3.5x classifier speedup): Only ~9K of 32K tokens appear in TinyStories. Reducing the classifier SGEMM from 32K to 9K vocab is free accuracy-wise.
 - **ACCUM ramping**: Start with low ACCUM (noisy but many updates) for early training, ramp up each cycle for smoother gradients. Sweet spot: ACCUM=12-14 for Lion, ACCUM=20-48 for Adam.
 - **LR schedule tuning is critical for multi-cycle runs**: TOTAL_STEPS must match the actual training window. Too high → model overfits (train_loss=0.87, val_loss=3.9). Too low → LR exhausts early, later cycles waste time.
+- **SGDR warm restarts**: Resetting the exhausted `adam_t` cosine counter re-anneals LR from peak on a good checkpoint. The first window looks worse while LR reheats; judge the full 3-window arc. Two arcs plus data expansion took val_loss from 2.320954 to 1.659077.
 - **LOSS_SCALE=1024** (April 2026, from ecosystem): Slavko/ANE-Training benchmarks show FP16 gradient underflow is worse than expected. LOSS_SCALE=1024 (up from 512) stabilizes the backward pass and prevents silent gradient vanishing. Improved val_loss from 2.489 to 2.477.
-- **EMBED_LR_SCALE=1.0** (April 2026): Embeddings were overfitting with 2× base LR. Equal LR (1.0) for both embeddings and norms gave better generalization, pushing val_loss from 2.477 to 2.432. The embedding matrix is already the largest parameter block (8M of 67M params) and doesn't need extra LR.
+- **EMBED_LR_SCALE=1.0** (April 2026): Embeddings were overfitting with 2× base LR. Equal LR (1.0) for both embeddings and norms gave better generalization, pushing val_loss from 2.477 to 2.432; this equal-LR setting remains in the current 1.659077 run.
 - **Adam is worse than Lion here** (April 2026): Tested Adam (LR=3e-4) against Lion (LR=5e-4). Adam achieved val_loss=3.23 after 3 cycles at ~99ms/step, significantly worse than Lion's 2.51 at the same point. Lion's sign-based updates are more robust for ANE's FP16 compute path.
 
 ### What didn't work
@@ -160,14 +162,14 @@ The agent edits `ane/experiment_config.h`. All hyperparameters and their current
 
 | Parameter | Value | Notes |
 |---|---|---|
-| `LEARNING_RATE` | 5e-4f | Base learning rate (scaled by differential LR multipliers below) |
+| `LEARNING_RATE` | 3.8e-4f | Base peak LR in the current full-dataset run; historical 5e-4f result predates valid resume overrides |
 | `ADAM_BETA1` | 0.9f | First moment decay (used by both Adam and Lion) |
 | `ADAM_BETA2` | 0.95f | Second moment decay / Lion momentum update |
 | `ADAM_EPS` | 1e-8f | Adam epsilon (unused by Lion) |
-| `ACCUM_STEPS` | 12 | Gradient accumulation steps per weight update + restage. Ramp up during training (2→12) |
+| `ACCUM_STEPS` | 2 | Gradient accumulation steps per weight update + restage; current best after SGDR/data expansion (older 2→12 ramp remains historical) |
 | `GRAD_CLIP_MAX` | 1.0f | Global L2 gradient norm clip threshold |
 | `WEIGHT_DECAY` | 0.1f | Decoupled weight decay. Applied only to weight matrices, not embeddings or RMSNorm |
-| `TOTAL_STEPS` | 3000 | Cosine LR schedule denominator (adam_t units). Must match optimal training window |
+| `TOTAL_STEPS` | 3000 | Cosine LR schedule denominator (`adam_t` units); reset with `--reset-schedule` for a new SGDR arc |
 | `LR_WARMUP_STEPS` | 100 | Linear warmup steps before cosine decay |
 | `LR_MIN_FRAC` | 0.1f | Cosine schedule decays LR to this fraction of max |
 | `LOSS_SCALE` | 1024.0f | Loss scaling factor — prevents FP16 gradient underflow. 1024 (up from 512) gives better FP16 stability |
@@ -177,7 +179,7 @@ The agent edits `ane/experiment_config.h`. All hyperparameters and their current
 | `USE_LION` | 1 | Lion optimizer (sign-based updates, no second moment, ~2x faster per update) |
 | `USE_VOCAB_COMPACT` | 1 | Vocab compaction: 32K→9K active tokens, 3.5x classifier SGEMM speedup |
 
-**Optimizer features**:
+**Optimizer features**
 
 - **Lion optimizer** (default) — sign-based weight updates: `w -= lr * sign(β1*m + (1-β1)*g)`, no second moment buffer. ~2x faster per update than Adam, half the optimizer memory. Toggle `USE_LION` to switch back to AdamW.
 - **Gradient clipping** — global L2 norm across all parameters using vDSP
@@ -266,13 +268,13 @@ This project builds on and references the following repositories:
 
 ### Recent findings from the ecosystem (June–August 2026)
 
-**Current local best** (our ANE autoresearch, August 2026): `val_loss=1.800504` with Lion + `LOSS_SCALE=1024` + `EMBED_LR_SCALE=1.0` + `ACCUM_STEPS=2`, reached from the June 2.320954 anchor via two SGDR warm-restart cycles on an expanded 8-shard dataset (~158M tokens). Two validity fixes made this possible: resume now honors config `LEARNING_RATE`/`TOTAL_STEPS` (the checkpoint header used to silently override them), and a new `--reset-schedule` flag re-anneals the cosine schedule (`ANE_RESET_SCHEDULE=1`). See `ane/autoresearch.md` and `updates/analysis-2026-08-21.md`.
+**Current local best** (our ANE autoresearch, August 2026): `val_loss=1.659077` with Lion + `LOSS_SCALE=1024` + `EMBED_LR_SCALE=1.0` + `ACCUM_STEPS=2`, reached from the June 2.320954 anchor via SGDR warm restarts and all 50 TinyStories shards (~1.025B tokens). Three validity fixes made this possible: resume now honors config `LEARNING_RATE`/`TOTAL_STEPS` (the checkpoint header used to silently override them), `--reset-schedule` re-anneals the cosine schedule, and sampling uses a wall-clock seed. See `ane/autoresearch.md` and `updates/analysis-2026-08-21.md`.
 
 **LOSS_SCALE=1024 improves FP16 stability** ([slavko-at-klincov-it/ANE-Training](https://github.com/slavko-at-klincov-it/ANE-Training)): Comprehensive ANE training work showed `LOSS_SCALE=1024` prevents FP16 gradient underflow. Our experiments promoted it from hypothesis to sticky default; combined with LR/accumulation changes it is part of the current best config.
 
-**Embedding LR equalization** (our experiments, April–June 2026): `EMBED_LR_SCALE=1.0` beats higher embedding LR. The embedding matrix overfits with a 2× scale; equal LR was the highest-impact Phase 6 change and remains in the 2.320954 best run.
+**Embedding LR equalization** (our experiments, April–August 2026): `EMBED_LR_SCALE=1.0` beats higher embedding LR. The embedding matrix overfits with a 2× scale; equal LR remains in the current 1.659077 full-dataset run.
 
-**Accumulation trajectory sensitivity** (our experiments, June 2026): From the anchored checkpoint, lowering accumulation to `ACCUM_STEPS=2` improved best val_loss to 2.320954. Fresh restarts did not reproduce the same path, so future autoresearch should treat checkpoint lineage as an experimental variable.
+**Accumulation trajectory sensitivity** (our experiments, June–August 2026): From the anchored checkpoint, lowering accumulation to `ACCUM_STEPS=2` improved best val_loss to 2.320954. Subsequent SGDR restarts and data expansion improved it to 1.659077 on the full 50-shard split; checkpoint lineage remains an experimental variable.
 
 **Rust ANE scale probes** ([ncdrone/rustane](https://github.com/ncdrone/rustane)): Rustane reports full training validation through 5B parameters and forward-only probes through 30B on M4 Max 128GB. The actionable lesson for this repo is shape discipline: wide/shallow vs deep/narrow crossovers matter, and dim=5120 is an efficiency cliff.
 

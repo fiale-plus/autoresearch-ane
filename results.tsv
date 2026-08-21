@@ -116,3 +116,11 @@ b42ac5f	1.836396	6.0	keep	[Aug21:SGDR+8xdata] B4 floor-LR continuation — fresh
 b42ac5f	2.143164	6.0	keep	[Aug21:SGDR-2] C1 second warm restart from 1.836396, mid-anneal
 b42ac5f	1.919288	6.0	keep	[Aug21:SGDR-2] C2 continuation
 b42ac5f	1.800504	6.0	keep	[Aug21:SGDR-2] C3 anneal complete — ALL-TIME BEST (2.320954 -> 1.800504)
+15b8c62	1.835299	0.0	keep	[Aug21:calib50] 1.800504-lineage calibrated on full 50-shard val split; baseline for Arc E
+15b8c62	2.042875	4.1	keep	[Aug21:SGDR+50xdata] E1 warm restart from 1.800504 lineage, mid-anneal; thermal throttling
+15b8c62	1.931931	3.9	keep	[Aug21:SGDR+50xdata] E2 continuation after cooldown
+15b8c62	1.808984	3.6	keep	[Aug21:SGDR+50xdata] E3 continuation, still mid-anneal
+15b8c62	1.721839	3.7	keep	[Aug21:SGDR+50xdata] E4 continuation; new best on 50-shard split
+15b8c62	1.679940	3.9	keep	[Aug21:SGDR+50xdata] E5 crosses schedule floor; new best
+15b8c62	1.667089	3.9	keep	[Aug21:SGDR+50xdata] E6 floor-LR continuation; new best
+15b8c62	1.659077	4.0	keep	[Aug21:SGDR+50xdata] E7 floor-LR gain below 0.01 stop threshold; round best

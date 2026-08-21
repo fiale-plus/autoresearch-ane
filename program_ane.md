@@ -49,7 +49,7 @@ Each experiment runs on the Apple Neural Engine. The training binary runs for a 
 
 **Simplicity criterion**: All else being equal, simpler is better. A small improvement from a radical architecture change that loses checkpoint progress may not be worth it compared to a hyperparameter tweak.
 
-**Current best-known ANE result (2026-06-25)**: `val_loss=2.320954` with Lion + `LOSS_SCALE=1024` + `EMBED_LR_SCALE=1.0` + `ACCUM_STEPS=2`. Treat this as the sticky baseline unless a new run proves otherwise. The June source scan also flags dispatch-count reduction, fused optimizer updates, embedding lookup speedups, and shape/tiling discipline as the most promising non-config improvement paths.
+**Current best-known ANE result (2026-08-22)**: `val_loss=1.659077` on the full 50-shard TinyStories file (~1.025B tokens), with Lion + `LEARNING_RATE=3.8e-4` + `LOSS_SCALE=1024` + `EMBED_LR_SCALE=1.0` + `ACCUM_STEPS=2`. It came from the 2.320954 checkpoint via two 8-shard SGDR arcs and one full-data SGDR arc. `--reset-schedule` (or `ANE_RESET_SCHEDULE=1`) resets `adam_t` to re-anneal a good checkpoint; compare only within the same validation split. The earlier June source scan flags dispatch-count reduction, fused optimizer updates, embedding lookup speedups, and shape/tiling discipline as the most promising non-config improvement paths.
 
 **The first run**: Your very first run should always be to establish the baseline, so you will run the training script as is.
 

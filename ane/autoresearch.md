@@ -1,10 +1,10 @@
 # ANE autoresearch log
 
 ## Current best known
-- `val_loss`: **1.800504** (2026-08-21, evaluated on the 8-shard val split)
-- Lineage: the 2026-05-26 anchor (2.320954) → two full SGDR warm-restart cycles on shards 00–07
+- `val_loss`: **1.659077** (2026-08-21, evaluated on the full 50-shard val split)
+- Lineage: the 2026-05-26 anchor (2.320954) → two 8-shard SGDR cycles → full-dataset Arc E
 - Key config: Lion + `LOSS_SCALE=1024` + `EMBED_LR_SCALE=1.0` + `ACCUM_STEPS=2` + `LEARNING_RATE=3.8e-4`
-- Checkpoints preserved: `ckpt_best_1.800504.bin` (best), `ckpt_best_1.836396.bin`, `ckpt_best_1.869944.bin`, `ckpt_best_1.988286.bin`, `ckpt_anchor_2.320954.bin` (pre-session anchor)
+- Checkpoints preserved: `ckpt_best_1.659077.bin` (best), `ckpt_E6_1.667089.bin`, `ckpt_E5_1.679940.bin`, `ckpt_E4_1.721839.bin`, `ckpt_E3_1.808984.bin`, plus prior `ckpt_best_1.800504.bin` and `ckpt_anchor_2.320954.bin`
 
 ## Validity fixes (2026-08-21, commit b42ac5f) — read before interpreting older entries
 Source inspection found three issues that invalidated parts of the pre-August-21 record:
@@ -13,7 +13,11 @@ Source inspection found three issues that invalidated parts of the pre-August-21
 3. **Fixed sampling seed**: `srand48(42 + start_step)` replayed the identical batch order every resumed window. Fixed: wall-clock seed.
 
 ## Data expansion (2026-08-21)
-`tinystories_data00.bin` is now the concatenation of shards 00–07 (~158M tokens; previously shard 00 only, ~19.7M tokens). The original single shard is preserved as `tinystories_data00_shard00_only.bin`. The val split moved to the last 10% of shard 07 and is ~0.09 harder: the 1.988286 checkpoint scores 2.078751 on the new split vs 1.988286 on the old one. Cross-split comparisons are not valid; use the calibrated bar.
+`tinystories_data00.bin` first became shards 00–07 (~165M tokens; previously shard 00 only), then was expanded to all 50 shards (~1.025B tokens). The original single shard is preserved as `tinystories_data00_shard00_only.bin`; the 8-shard intermediate is `tinystories_8shard.bin`. Each expansion changes the val split, so the incumbent was calibrated before comparison.
+
+
+## 8-shard data expansion details (2026-08-21)
+`tinystories_data00.bin` is now the concatenation of shards 00–07 (~165M tokens; previously shard 00 only, ~20.7M tokens). The original single shard is preserved as `tinystories_data00_shard00_only.bin`. The val split moved to the last 10% of shard 07 and is ~0.09 harder: the 1.988286 checkpoint scores 2.078751 on the new split vs 1.988286 on the old one. Cross-split comparisons are not valid; use the calibrated bar.
 
 ## Local cycle (2026-08-21) — SGDR arc A (shard-00 data)
 - Change: warm restart (`adam_t 2611 → 0`) from the 2.320954 anchor, then two continuation windows.
@@ -30,10 +34,17 @@ Source inspection found three issues that invalidated parts of the pre-August-21
 - Results: C1 `2.143164` (mid-anneal), C2 `1.919288`, C3 `1.800504` (anneal complete).
 - Verdict: **keep all**; C3 is the all-time best. Restart arcs currently yield ~−0.03..−0.05 per full cycle; continuation windows after an arc yield <−0.01.
 
+## Local cycle (2026-08-21) — SGDR arc E (all 50 shards)
+- Change: full TinyStories archive, shards 00–49, concatenated into `tinystories_data00.bin` (~1.025B tokens); warm restart from the 1.800504 lineage, then floor-LR continuation.
+- Calibration: the 1.800504 checkpoint scored `1.835299` on the new full-dataset val split. Use this as the same-split baseline; old 1.800504 and new 1.835299 are not directly comparable.
+- Results: E1 `2.042875` (mid-anneal), E2 `1.931931`, E3 `1.808984`, E4 `1.721839`, E5 `1.679940` (schedule crossed floor), E6 `1.667089`, E7 `1.659077`.
+- Runtime: sustained ANE work thermally throttled this arc to 158–173 ms/step and 3.6–4.1% reported utilization, versus ~105 ms/step on the preceding 8-shard arc.
+- Verdict: **keep all**; E7 improves the calibrated baseline by `0.176222`. The final floor-LR gain was `0.008012`, below the `0.01/window` continuation threshold; stop and restart for the next arc.
+
 ## Protocol going forward
-1. Compare candidates only against results on the same val split (current bar for any new idea: beat `1.800504`).
+1. Compare candidates only against results on the same val split (current bar for any new idea: beat `1.659077` on the full 50-shard split).
 2. When per-window gains decay below ~0.01, run a fresh warm-restart arc (`ANE_RESET_SCHEDULE=1`, 3 windows) rather than more floor-LR continuations.
-3. There are still 42 unused shards (`data08`–`data49` in the HF archive); expanding data further is the cheapest known lever.
+3. All 50 available shards are now active; further gains require better optimization, throughput, or a new dataset.
 4. `ms_per_step` excludes the optimizer/restage block, which consumes ~27% of wall time — see `updates/analysis-2026-08-21.md` for the remaining Tier-2 levers.
 
 ## Latest local cycle (2026-08-20)
