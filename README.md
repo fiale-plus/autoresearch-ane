@@ -96,7 +96,7 @@ This fork adds an **ANE training backend** that runs transformer training direct
 
 ### Current best results
 
-**val_loss = 2.432** (~95 autonomous experiment cycles across 7 phases, ~67M param model, 5-min budget per cycle)
+**val_loss = 1.800504** (August 2026: SGDR warm restarts + 8-shard dataset on top of ~95 cycles across 7 phases; ~67M param model, 5-min budget per cycle. Previous milestones: 2.432 April, 2.320954 June.)
 
 Starting from 6.109 baseline, key improvements discovered through autonomous experimentation:
 
@@ -266,7 +266,7 @@ This project builds on and references the following repositories:
 
 ### Recent findings from the ecosystem (June–August 2026)
 
-**Current local best** (our ANE autoresearch, June 2026): `val_loss=2.320954` with Lion + `LOSS_SCALE=1024` + `EMBED_LR_SCALE=1.0` + `ACCUM_STEPS=2`. This supersedes the April 2.432 baseline; checkpoint trajectory matters, so confirmatory reruns should keep the same anchor before broad sweeps.
+**Current local best** (our ANE autoresearch, August 2026): `val_loss=1.800504` with Lion + `LOSS_SCALE=1024` + `EMBED_LR_SCALE=1.0` + `ACCUM_STEPS=2`, reached from the June 2.320954 anchor via two SGDR warm-restart cycles on an expanded 8-shard dataset (~158M tokens). Two validity fixes made this possible: resume now honors config `LEARNING_RATE`/`TOTAL_STEPS` (the checkpoint header used to silently override them), and a new `--reset-schedule` flag re-anneals the cosine schedule (`ANE_RESET_SCHEDULE=1`). See `ane/autoresearch.md` and `updates/analysis-2026-08-21.md`.
 
 **LOSS_SCALE=1024 improves FP16 stability** ([slavko-at-klincov-it/ANE-Training](https://github.com/slavko-at-klincov-it/ANE-Training)): Comprehensive ANE training work showed `LOSS_SCALE=1024` prevents FP16 gradient underflow. Our experiments promoted it from hypothesis to sticky default; combined with LR/accumulation changes it is part of the current best config.
 

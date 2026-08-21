@@ -105,3 +105,14 @@ v13_c5	2.443	6.3	keep	[Phase7] v13 cycle 5 ACCUM=10
 v13_c6	2.435	6.3	keep	[Phase7] v13 cycle 6 ACCUM=12
 v13_c7	2.432	6.3	keep	[Phase7] v13 cycle 7 ACCUM=14 — BEST FINAL
 v13_c8	2.438	6.3	keep	[Phase7] v13 cycle 8 ACCUM=16 slight worse
+b42ac5f	2.457641	6.6	keep	[Aug21:SGDR] A1 warm-restart adam_t 2611->0 from 2.320954 anchor, shard00, mid-anneal
+b42ac5f	2.113512	6.6	keep	[Aug21:SGDR] A2 continuation anneal — NEW BEST (prev 2.320954)
+b42ac5f	1.988286	6.5	keep	[Aug21:SGDR] A3 anneal complete — NEW BEST
+b42ac5f	2.078751	6.0	keep	[Aug21:calib] A3-weights evaluated on new 8-shard val split (bar for B/C arcs)
+b42ac5f	2.258588	6.0	keep	[Aug21:SGDR+8xdata] B1 restart from 1.988 lineage, shards 00-07, mid-anneal
+b42ac5f	1.996975	6.0	keep	[Aug21:SGDR+8xdata] B2 continuation — beats calibrated bar 2.078751
+b42ac5f	1.869944	6.0	keep	[Aug21:SGDR+8xdata] B3 anneal complete — NEW BEST on comparable split
+b42ac5f	1.836396	6.0	keep	[Aug21:SGDR+8xdata] B4 floor-LR continuation — fresh tokens still help (unlike Aug small-data probes)
+b42ac5f	2.143164	6.0	keep	[Aug21:SGDR-2] C1 second warm restart from 1.836396, mid-anneal
+b42ac5f	1.919288	6.0	keep	[Aug21:SGDR-2] C2 continuation
+b42ac5f	1.800504	6.0	keep	[Aug21:SGDR-2] C3 anneal complete — ALL-TIME BEST (2.320954 -> 1.800504)
