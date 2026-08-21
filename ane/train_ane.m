@@ -232,12 +232,14 @@ int main(int argc, char *argv[]) {
         bool do_resume = false;
         bool fresh = false;
         bool reset_timing = false;
+        bool reset_schedule = false;
         int wall_time_budget = 300;
         int pos = 0;
         for (int i=1; i<argc; i++) {
             if (strcmp(argv[i], "--resume") == 0) do_resume = true;
             else if (strcmp(argv[i], "--fresh") == 0) fresh = true;
             else if (strcmp(argv[i], "--reset-timing") == 0) reset_timing = true;
+            else if (strcmp(argv[i], "--reset-schedule") == 0) reset_schedule = true;
             else if (strcmp(argv[i], "--wall-time") == 0 && i+1<argc) wall_time_budget = atoi(argv[++i]);
             else if (strcmp(argv[i], "--steps") == 0 && i+1<argc) total_steps = atoi(argv[++i]);
             else if (strcmp(argv[i], "--lr") == 0 && i+1<argc) lr = atof(argv[++i]);
@@ -287,6 +289,21 @@ int main(int argc, char *argv[]) {
                     printf("[RESUMED weights (adam_t=%d), reset timing for new experiment]\n", adam_t);
                 } else {
                     printf("[RESUMED step %d, loss=%.4f]\n", start_step, resume_loss);
+                }
+                // Config defines are authoritative on resume: the checkpoint header
+                // stores stale lr/total_steps from when the lineage first saved,
+                // which silently ignored LEARNING_RATE/TOTAL_STEPS config changes.
+                if (lr != (float)LEARNING_RATE || total_steps != TOTAL_STEPS)
+                    printf("[CONFIG OVERRIDE] lr %.4g -> %.4g, total_steps %d -> %d (experiment_config.h)\n",
+                           lr, (float)LEARNING_RATE, total_steps, TOTAL_STEPS);
+                lr = LEARNING_RATE;
+                total_steps = TOTAL_STEPS;
+                // Warm restart (SGDR): reset the cosine schedule so LR re-anneals
+                // from peak. CLI flag or ANE_RESET_SCHEDULE=1 env var.
+                const char *env_rs = getenv("ANE_RESET_SCHEDULE");
+                if ((env_rs && strcmp(env_rs, "0") != 0) || reset_schedule) {
+                    printf("[RESET SCHEDULE] adam_t %d -> 0 (warm restart)\n", adam_t);
+                    adam_t = 0;
                 }
             }
         }
@@ -451,7 +468,9 @@ int main(int argc, char *argv[]) {
         int total_steps_done=0;
         uint64_t t_wall_start = mach_absolute_time();
 
-        srand48(42 + start_step);
+        // Seed from wall clock: --reset-timing zeroes start_step, which made every
+        // resumed window replay the identical drand48 batch sequence.
+        srand48((long)((mach_absolute_time() >> 13) | 1));
         float res_alpha = 1.0f / sqrtf(2.0f * NLAYERS);
 
         // Zero gradient accumulators
