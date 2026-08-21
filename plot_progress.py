@@ -20,9 +20,15 @@ with open('results.tsv') as f:
             'desc': r['description'].strip(),
         })
 
-# Index of the 8-shard val-split calibration row (val numbers after it are on
-# the harder split — mark the boundary so the two segments aren't compared raw)
-split_x = next((i for i, r in enumerate(rows) if '[aug21:calib]' in r['desc'].lower()), None)
+# Indices of val-split calibration rows (each data expansion changes the
+# evaluation segment, so mark every boundary rather than comparing raw values)
+split_markers = []
+for i, r in enumerate(rows):
+    desc = r['desc'].lower()
+    if '[aug21:calib]' in desc:
+        split_markers.append((i, '8-shard val split →'))
+    elif '[aug21:calib50]' in desc:
+        split_markers.append((i, '50-shard val split →'))
 
 n = len(rows)
 xs = list(range(len(rows)))
@@ -87,12 +93,15 @@ for spine in ['bottom', 'left']:
 
 ax.tick_params(colors='#888888', labelsize=10)
 
-# Dashed marker where the val split changed (Aug 21 data expansion)
-if split_x is not None:
-    ax.axvline(split_x - 0.5, color='#e67e22', linewidth=1.2, linestyle='--',
-               alpha=0.8, zorder=2)
-    ax.text(split_x - 0.5, ax.get_ylim()[1], '8-shard val split →',
-            fontsize=9, color='#e67e22', ha='left', va='top')
+# Dashed markers where the val split changed (Aug 21 data expansions)
+if split_markers:
+    y_bottom, y_top = ax.get_ylim()
+    y_span = y_top - y_bottom
+    for marker_i, (split_x, label) in enumerate(split_markers):
+        ax.axvline(split_x - 0.5, color='#e67e22', linewidth=1.2,
+                   linestyle='--', alpha=0.8, zorder=2)
+        ax.text(split_x - 0.5, y_top - marker_i * 0.08 * y_span, label,
+                fontsize=9, color='#e67e22', ha='left', va='top')
 
 legend = [
     mpatches.Patch(color='#cccccc', label='Discarded'),
