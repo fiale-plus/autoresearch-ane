@@ -20,6 +20,10 @@ with open('results.tsv') as f:
             'desc': r['description'].strip(),
         })
 
+# Index of the 8-shard val-split calibration row (val numbers after it are on
+# the harder split — mark the boundary so the two segments aren't compared raw)
+split_x = next((i for i, r in enumerate(rows) if '[aug21:calib]' in r['desc'].lower()), None)
+
 n = len(rows)
 xs = list(range(len(rows)))
 ys = [r['val_loss'] for r in rows]
@@ -82,6 +86,13 @@ for spine in ['bottom', 'left']:
     ax.spines[spine].set_color('#cccccc')
 
 ax.tick_params(colors='#888888', labelsize=10)
+
+# Dashed marker where the val split changed (Aug 21 data expansion)
+if split_x is not None:
+    ax.axvline(split_x - 0.5, color='#e67e22', linewidth=1.2, linestyle='--',
+               alpha=0.8, zorder=2)
+    ax.text(split_x - 0.5, ax.get_ylim()[1], '8-shard val split →',
+            fontsize=9, color='#e67e22', ha='left', va='top')
 
 legend = [
     mpatches.Patch(color='#cccccc', label='Discarded'),
