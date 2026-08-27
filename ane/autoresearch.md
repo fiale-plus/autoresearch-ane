@@ -109,14 +109,14 @@ Source inspection found three issues that invalidated parts of the pre-August-21
 - Verdict: keep for now, but not an all-time best
 
 ## Source-informed next hypotheses (updated 2026-06-25)
-1. (2026-06-25 text, superseded Aug 26) Sticky baseline is now Lion + `LOSS_SCALE=1024` + `EMBED_LR_SCALE=1.0` + `ACCUM_STEPS=3` + `WEIGHT_DECAY=0.10`.
+1. (2026-06-25 text, superseded Aug 26) Sticky baseline is now Lion + `LOSS_SCALE=1024` + `EMBED_LR_SCALE=1.0` + `ACCUM_STEPS=6` + `WEIGHT_DECAY=0.10`; 6-vs-5 remains inconclusive.
 2. First confirm robustness from the same checkpoint trajectory; the fresh-restart cycle showed that checkpoint lineage is an experimental variable.
 3. Config-only follow-ups: small, single-variable probes around accumulation and LR schedule. Avoid broad weight-decay neighborhood sweeps unless a stronger hypothesis appears.
 4. Infra/code follow-ups from `README.md` and `updates/knowledge-sources-2026-06-25.md`: fused Metal Lion updates, embedding lookup speedup (`maderix/ANE` PR #39), dispatch-count reduction / compile-once discipline (`jmanhype/ane-lora-training`, `rustane`), and shape/tiling probes before large architecture changes.
 
 ## Aug26 cycle (branch autoresearch-ane/aug26)
-- Session result: `val_loss 1.659077 -> 1.593065` in 5 keeps + 2 discards across 7 rows (keeps: R0-R2 floor continuations, R3c regen, R4; discards: R3a endpoint lost, R3b control; R3 same-anchor A/B — the ACCUM=3 arm's endpoint was lost when the anchor was restored, superseded by its regen R3c; R4 continuation).
-- Key experiment: same-anchor A/B: ACCUM=3 reached `1.602377` vs `1.615093` for ACCUM=2 from the identical anchor (regen `1.603196`). Observed same-anchor metrics: 2147 vs 1963 steps, 110.5 vs 110.6 ms_per_step. The staging hypothesis (each Lion update re-stages weights, ~50 ms host->ANE; ~27% of wall at the pre-A/B 93 ms/step ACCUM=2 baseline) motivated the trial and matches its direction, but the A/B does not isolate staging as the cause.
+- Wave 1 result: `val_loss 1.659077 -> 1.593065` in 5 keeps + 2 discards across 7 rows (R0-R2 floor continuations, R3c regen, R4; R3a/R3b discarded). This is historical; the retained best after Wave 2 is 1.540568.
+- Wave 1 same-anchor A/B: ACCUM=3 reached `1.602377` vs `1.615093` for ACCUM=2 (regen `1.603196`). These are bounded single-pair observations; the staging hypothesis motivated the test but was not established as the cause.
 - Reproducibility: winning arm re-run from anchor landed within 0.0008 (1.602377 vs 1.603196).
 
 ## Infra recommendations from direct private-API research (ane-api-research lab, Aug 25-26)
@@ -129,39 +129,40 @@ These are code-level (out of config-only scope), measured on this machine (M3 Pr
 5. **Perf counters** (`_ANEPerformanceStats`) were not populated even with `perfStatsMask=0xFFFFFFFF`; cause unknown (aned-side enablement is one hypothesis). Would give a true hw-time vs wall-time split if enabled.
 6. **SRAM working set**: the kernel-bench tooling warns above 32 MB working set; treat that warning as the observed bound and keep DIM*SEQ activation footprint under it when probing architecture changes (spill behavior itself was not directly measured).
 
-### Correction to the staging story above (exact-code measurement, Aug 26 lab)
-Direct benchmarking with the trainer's OWN implementations verbatim
-(`transpose_weight` = vDSP_mtrans, `lion_update` from stories_cpu_ops.h, exact
-shapes) measures ~49.4 ms per update: transposes 8.3 ms + Lion matrices 20.9 ms +
-Lion full-32k embedding 9.3 ms + f32->f16 staging conversion ~11.0 ms — matching
-the repo's "~50 ms" figure. The dominant single item is the scalar sign loop in
-lion_update plus updating all 32k embedding rows under USE_VOCAB_COMPACT (~23k
-rows get no gradient). Evidence-backed levers (code-level): restrict optimizer to
-active embedding rows (~6.6 ms), chunk lion_update's scalar tail across threads,
-prune the four dead kernels (sdpaFwd/woFwd/qBwd/kvBwd are staged but never
-evaluated; ~2.7 ms + compile/memory). v2 harness (verbatim structure, real IOSurfaces, checksum-validated) measures update block 39.05 ms + staging 15.95 ms current / 11.98 ms pruned => ~55 ms total; pruning the four dead kernels saves ~4.0 ms/update (+~1.2% steps).
-The ACCUM=3 A/B result stands empirically. Full measurements:
-ane-api-research lab, `ane-lab/results/staging-anatomy.md` + `results/raw/exact-bench.txt`.
+### Correction to the staging story above (exact-code v2 measurement, Aug 26 lab)
+The earlier ~49.4 ms breakdown was superseded. The authoritative v2 harness uses
+the trainer's own `transpose_weight`/`lion_update`, the actual
+`dispatch_apply(NLAYERS)` structure, full-vocab embedding, true SP strides, and
+real IOSurfaces. It measures optimizer update block **39.05 ms**, current
+10-kernel staging **15.95 ms**, pruned 6-live-kernel staging **11.98 ms**, total
+**~55.0 ms**. Common-surface checksums match between current and pruned staging.
+Pruning `sdpaFwd`/`woFwd`/`qBwd`/`kvBwd` (staged but never evaluated) saves ~4.0
+ms/update; 4/13 of the measured 0.5 s compile is only an equal-cost estimate.
+Skipping inactive embedding rows is unsafe because Lion momentum state persists.
+No private-API modification landed in `train_ane.m`; these measurements only
+motivated configuration tests. Full evidence: ane-api-research lab,
+`ane-lab/results/staging-anatomy.md` + `results/raw/exact-bench-v2.txt`.
+
+**Attribution note**: no private-API modification landed in `train_ane.m` this
+session (agent edits are config-only). The lab's 55 ms/update anatomy only
+MOTIVATED the ACCUM A/Bs; it did not establish staging amortization as their
+cause. Gains attribution: floor continuations + bounded ACCUM deltas, each
+from single stochastic arm pairs.
 
 ### Wave 2 (Aug 26, continued): ACCUM_STEPS=4 adopted
 - Same-anchor A/B #2: ACCUM=4 reached `1.571062` vs `1.581343` for ACCUM=3
   (regen `1.577762`; arms ran 2245 vs 2139 steps at ~110.7 ms_per_step).
   ACCUM=4 adopted; sticky config now `ACCUM_STEPS=4`.
-- Trend: each +1 ACCUM keeps winning on this full-data lineage (2 -> 3 -> 4),
-  consistent with fewer weight-restagings per token and larger effective batch.
-  Next bounded probe: ACCUM=5 same-anchor A/B; stop when an A/B loses.
+- ACCUM=4 and ACCUM=5 each won their single same-anchor A/B at that point; the later 6-vs-5 follow-up was inconclusive. Treat the sequence as bounded stochastic evidence, not a monotonic law.
+- Next bounded probe at that point: ACCUM=5 same-anchor A/B (completed below).
 - Protocol fix: arm endpoints are now cloned (`ckpt.arm_*.bin`) BEFORE restoring
   the anchor — R3a and R6a endpoints were lost by restoring first.
 
 ### Wave 2 addendum: ACCUM=5 adopted (A/B chain 3>2, 4>3, 5>4)
 - Same-anchor A/B #3: ACCUM=5 `1.558474` vs ACCUM=4 control `1.566481`
   (arm endpoint saved per protocol). Sticky config now `ACCUM_STEPS=5`.
-- Attribution correction: of the session's 1.659077 -> 1.577762 movement, floor
-  continuations account for much of the total; the controlled ACCUM advantages
-  are bounded deltas (~0.0127 for 3 vs 2, ~0.0103 for 4 vs 3, ~0.0080 for 5 vs 4),
-  each from a single stochastic arm pair — treat as bounded A/B evidence, not
-  causal proof or the majority share.
-- Next bounded probe: ACCUM=6 same-anchor A/B; stop at first losing A/B.
+- Attribution correction: of the cumulative 1.659077 -> 1.540568 movement, floor continuations account for much of the total; controlled ACCUM advantages are bounded deltas (~0.0127 for 3 vs 2, ~0.0103 for 4 vs 3, ~0.0080 for 5 vs 4, and the 6-vs-5 pair is inconclusive). Each is a single stochastic arm pair; none establishes a causal mechanism.
+- Next bounded probe at that point: ACCUM=6 same-anchor A/B (completed below).
 
 ### Staging duplication scope note
 The 2.0x figure among live kernels is PARAMETER-IDENTITY duplication, not
@@ -173,18 +174,16 @@ those layouts on-device without offsetting cost — the 16 -> 8 ms/update figure
 is therefore an UNPROVEN CEILING until a compiled correctness+timing probe of a
 layout-unified kernel set succeeds.
 
-### Wave 2 cont.: ACCUM=6 adopted (chain 3>2, 4>3, 5>4, 6>5)
-- Same-anchor A/B #4: ACCUM=6 `1.546580` vs ACCUM=5 control `1.551559`
-  (2331 vs 2305 steps, ~111 ms/step). Delta shrank to ~5 milli-loss
-  (12.7 -> 10.3 -> 8.0 -> 5.0): the amortization curve is flattening.
-- Next probe: ACCUM=7 same-anchor A/B; expect the first loss within 1-2 steps.
+### Wave 2 cont.: ACCUM=6 retained provisionally; first 6-vs-5 pair
+- Pair 1: ACCUM=6 `1.546580` vs ACCUM=5 control `1.551559` (2331 vs 2305 steps, ~111 ms/step). Delta +0.00498, inside the observed identical-config spread.
+- The second same-anchor pair below was required before treating the setting as established.
 
 ### Wave 2 cont.: 6-vs-5 settled as INCONCLUSIVE (two-pair protocol)
 - Pair 1 (R8): 6 `1.546580` vs 5 `1.551559` -> delta +0.00498
 - Pair 2 (R9, fresh anchor = R8 arm endpoint): 6 `1.540568` vs 5 `1.540098`
-  -> delta -0.00047
+  -> delta -0.00047; the lower 5 endpoint was not saved before restore.
 - Aggregate: mean +0.0023, well inside the observed run-to-run spread
-  (~0.0067 between identical-config arms). Verdict: no established difference;
-  ACCUM=6 retained (its arm produced the best observed loss, and higher ACCUM
-  weakly favors fewer restagings). Chain closed — further ACCUM probes are
-  below the noise floor.
+  (~0.0067 between identical-config arms). Verdict: no established difference.
+- Retained lineage: ACCUM=6 with the saved 1.540568 checkpoint; R9b's
+  1.540098 is a measured discarded observation, not a retained endpoint.
+- Chain closed — further ACCUM probes are below the current noise floor.
