@@ -131,3 +131,6 @@ d6396af	1.602377	5.7	discard	[Aug26:AB-accum] R3a ACCUM=3 arm (endpoint lost on 
 041f696	1.615093	5.7	discard	[Aug26:AB-accum] R3b ACCUM=2 control from same anchor; loses to ACCUM=3
 9517e53	1.603196	5.7	keep	[Aug26:AB-accum] R3c ACCUM=3 regen from anchor; reproducible (1.6024/1.6032); new best
 9517e53	1.593065	5.7	keep	[Aug26:accum3+floor] R4 floor continuation on ACCUM=3 config; new best
+9517e53	1.588511	5.7	keep	[Aug26:accum3+floor] R5 floor continuation
+ccfb935	1.571062	5.7	keep	[Aug26:AB-accum34] R6a ACCUM=4 arm from anchor (control pending)
+ea69cbc	1.581343	5.7	discard	[Aug26:AB-accum34] R6b ACCUM=3 control from same anchor; loses to ACCUM=4
