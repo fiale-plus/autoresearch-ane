@@ -109,7 +109,36 @@ Source inspection found three issues that invalidated parts of the pre-August-21
 - Verdict: keep for now, but not an all-time best
 
 ## Source-informed next hypotheses (updated 2026-06-25)
-1. Keep the current best-known config as the sticky baseline: Lion + `LOSS_SCALE=1024` + `EMBED_LR_SCALE=1.0` + `ACCUM_STEPS=2` + `WEIGHT_DECAY=0.10`.
+1. (2026-06-25 text, superseded Aug 26) Sticky baseline is now Lion + `LOSS_SCALE=1024` + `EMBED_LR_SCALE=1.0` + `ACCUM_STEPS=3` + `WEIGHT_DECAY=0.10`.
 2. First confirm robustness from the same checkpoint trajectory; the fresh-restart cycle showed that checkpoint lineage is an experimental variable.
 3. Config-only follow-ups: small, single-variable probes around accumulation and LR schedule. Avoid broad weight-decay neighborhood sweeps unless a stronger hypothesis appears.
 4. Infra/code follow-ups from `README.md` and `updates/knowledge-sources-2026-06-25.md`: fused Metal Lion updates, embedding lookup speedup (`maderix/ANE` PR #39), dispatch-count reduction / compile-once discipline (`jmanhype/ane-lora-training`, `rustane`), and shape/tiling probes before large architecture changes.
+
+## Aug26 cycle (branch autoresearch-ane/aug26)
+- Session result: `val_loss 1.659077 -> 1.593065` in 5 keeps + 2 discards across 7 rows (keeps: R0-R2 floor continuations, R3c regen, R4; discards: R3a endpoint lost, R3b control; R3 same-anchor A/B — the ACCUM=3 arm's endpoint was lost when the anchor was restored, superseded by its regen R3c; R4 continuation).
+- Key experiment: same-anchor A/B: ACCUM=3 reached `1.602377` vs `1.615093` for ACCUM=2 from the identical anchor (regen `1.603196`). Observed same-anchor metrics: 2147 vs 1963 steps, 110.5 vs 110.6 ms_per_step. The staging hypothesis (each Lion update re-stages weights, ~50 ms host->ANE; ~27% of wall at the pre-A/B 93 ms/step ACCUM=2 baseline) motivated the trial and matches its direction, but the A/B does not isolate staging as the cause.
+- Reproducibility: winning arm re-run from anchor landed within 0.0008 (1.602377 vs 1.603196).
+
+## Infra recommendations from direct private-API research (ane-api-research lab, Aug 25-26)
+(Observations/hypotheses from short probes on this machine — not exhaustive. Raw probe evidence lives in that lab repo at `ane-lab/results/raw/`, not in this branch.)
+These are code-level (out of config-only scope), measured on this machine (M3 Pro, macOS 26.5):
+1. **Cached IOSurface bindings** (hypothesis): `_ANEClient.mapIOSurfacesWithModel:request:cacheInference:error:` persists IO bindings per program — could remove per-call binding setup overhead; it would NOT eliminate the ~50 ms changed-weight restage after each optimizer step (weights change every update). Biggest unknown for `ane_util_pct` (still ~5.7%).
+2. **QoS queues**: in this workload (8-layer conv, 200 iters/stream), two streams on different queues showed no advantage over same-queue (both ~3-4x slower than one stream). Whether other workloads see queue-level parallelism is untested. Do not spend effort on concurrent-stream designs; do use QoS to prioritize interactive evals.
+3. **RealTime lane**: `beginRealTimeTask` returned NO in our unentitled CLI process; cause unknown (no realtime-specific entitlement constant exists in `_ANEStrings`).
+4. **VisionCoreE5RT compile options** expose `fullyANEResident`, raw `customCompilationOptions`, multi-entry MIL programs (`milEntryPoints`) — a route to fewer dispatches than the current 10-kernel pipeline if we ever recompile the trainer's graph.
+5. **Perf counters** (`_ANEPerformanceStats`) were not populated even with `perfStatsMask=0xFFFFFFFF`; cause unknown (aned-side enablement is one hypothesis). Would give a true hw-time vs wall-time split if enabled.
+6. **SRAM working set**: the kernel-bench tooling warns above 32 MB working set; treat that warning as the observed bound and keep DIM*SEQ activation footprint under it when probing architecture changes (spill behavior itself was not directly measured).
+
+### Correction to the staging story above (exact-code measurement, Aug 26 lab)
+Direct benchmarking with the trainer's OWN implementations verbatim
+(`transpose_weight` = vDSP_mtrans, `lion_update` from stories_cpu_ops.h, exact
+shapes) measures ~49.4 ms per update: transposes 8.3 ms + Lion matrices 20.9 ms +
+Lion full-32k embedding 9.3 ms + f32->f16 staging conversion ~11.0 ms — matching
+the repo's "~50 ms" figure. The dominant single item is the scalar sign loop in
+lion_update plus updating all 32k embedding rows under USE_VOCAB_COMPACT (~23k
+rows get no gradient). Evidence-backed levers (code-level): restrict optimizer to
+active embedding rows (~6.6 ms), chunk lion_update's scalar tail across threads,
+prune the four dead kernels (sdpaFwd/woFwd/qBwd/kvBwd are staged but never
+evaluated; ~2.7 ms + compile/memory). v2 harness (verbatim structure, real IOSurfaces, checksum-validated) measures update block 39.05 ms + staging 15.95 ms current / 11.98 ms pruned => ~55 ms total; pruning the four dead kernels saves ~4.0 ms/update (+~1.2% steps).
+The ACCUM=3 A/B result stands empirically. Full measurements:
+ane-api-research lab, `ane-lab/results/staging-anatomy.md` + `results/raw/exact-bench.txt`.

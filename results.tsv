@@ -124,3 +124,10 @@ b42ac5f	1.800504	6.0	keep	[Aug21:SGDR-2] C3 anneal complete — ALL-TIME BEST (2
 15b8c62	1.679940	3.9	keep	[Aug21:SGDR+50xdata] E5 crosses schedule floor; new best
 15b8c62	1.667089	3.9	keep	[Aug21:SGDR+50xdata] E6 floor-LR continuation; new best
 15b8c62	1.659077	4.0	keep	[Aug21:SGDR+50xdata] E7 floor-LR gain below 0.01 stop threshold; round best
+87a6ba1	1.642882	5.7	keep	[Aug26:floor+50xdata] R0 baseline confirmation of best lineage
+87a6ba1	1.632695	5.7	keep	[Aug26:floor+50xdata] R1 floor continuation
+87a6ba1	1.626608	5.7	keep	[Aug26:floor+50xdata] R2 floor continuation
+d6396af	1.602377	5.7	discard	[Aug26:AB-accum] R3a ACCUM=3 arm (endpoint lost on anchor restore; superseded by R3c regen)
+041f696	1.615093	5.7	discard	[Aug26:AB-accum] R3b ACCUM=2 control from same anchor; loses to ACCUM=3
+9517e53	1.603196	5.7	keep	[Aug26:AB-accum] R3c ACCUM=3 regen from anchor; reproducible (1.6024/1.6032); new best
+9517e53	1.593065	5.7	keep	[Aug26:accum3+floor] R4 floor continuation on ACCUM=3 config; new best
