@@ -168,6 +168,7 @@ The agent edits `ane/experiment_config.h`. All hyperparameters and their current
 | Parameter | Value | Notes |
 |---|---|---|
 | `LEARNING_RATE` | 3.8e-4f | Base peak LR in the current full-dataset run; historical 5e-4f result predates valid resume overrides |
+| `ADAM_BETA1` | 0.9f | First moment decay (used by both Adam and Lion) |
 | `ACCUM_STEPS` | 6 | Retained clean endpoint in the latest mainline replay; ACCUM=7 produced a lower but pressure-contended observation and was discarded |
 | `ADAM_BETA2` | 0.95f | Second moment decay / Lion momentum update |
 | `ADAM_EPS` | 1e-8f | Adam epsilon (unused by Lion) |
