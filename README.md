@@ -87,7 +87,7 @@ This fork adds an **ANE training backend** that runs transformer training direct
 ### How it works
 
 - Uses TinyStories dataset with Llama2 32K BPE tokenizer (ANE's native data format)
-- **Dynamic weight pipeline**: 13 ANE kernels compiled once at startup (~1s). Weights passed via IOSurface spatial dimensions using `slice_by_size` — no recompilation during training
+- **Dynamic weight pipeline**: 12 ANE kernels compile once at startup (~1s); 4 legacy kernels are currently staged but not evaluated. Weights pass via IOSurface spatial dimensions using `slice_by_size` — no recompilation during training
 - **Mega-kernel fusion**: Forward pass uses fused sdpaWoFwd (SDPA + Wo projection in one kernel) and fused qkvBwd (Q+KV backward in one kernel), eliminating 12 IOSurface round-trips per step
 - **Pipeline overlap**: CPU gradient computations (dW cblas) run asynchronously during ANE forward pass. Embedding backward is also async.
 - After each Lion/Adam update, weights are transposed and re-staged to per-layer IOSurfaces
@@ -121,7 +121,7 @@ Starting from 6.109 baseline, key improvements discovered through autonomous exp
 
 ### Key discoveries
 
-- **Dynamic weight pipeline** (historical 10-kernel milestone): The original pipeline compiled 10 ANE kernels once at startup and passed weights via IOSurface spatial dimensions. The current trainer compiles 13 kernels, including the fused paths described above; no recompilation occurs during training.
+- **Dynamic weight pipeline** (historical 10-kernel milestone): The original pipeline compiled 10 ANE kernels once at startup. The current trainer compiles 12 kernels, with 4 legacy paths currently dead and 8 evaluated; no recompilation occurs during training.
 - **Mega-kernel fusion** (45% faster steps): Fusing sdpaFwd+woFwd into one kernel and qBwd+kvBwd into another eliminated 12 IOSurface round-trips per step. The bottleneck was IOSurface lock/unlock/memcpy overhead, not compute.
 - **Lion optimizer**: Sign-based weight updates with no second moment buffer. ~2x faster per update than Adam. Counter-intuitively, works best with Adam-style hyperparams (LR=5e-4, WD=0.1), not the lower LR/higher WD recommended in the paper.
 - **Vocab compaction** (3.5x classifier speedup): Only ~9K of 32K tokens appear in TinyStories. Reducing the classifier SGEMM from 32K to 9K vocab is free accuracy-wise.
@@ -167,7 +167,7 @@ The agent edits `ane/experiment_config.h`. All hyperparameters and their current
 | Parameter | Value | Notes |
 |---|---|---|
 | `LEARNING_RATE` | 3.8e-4f | Base peak LR in the current full-dataset run; historical 5e-4f result predates valid resume overrides |
-| `ADAM_BETA1` | 0.9f | First moment decay (used by both Adam and Lion) |
+| `ACCUM_STEPS` | 6 | Retained local best-lineage setting; the two-pair 6-vs-5 comparison was inconclusive, so this is a retained-lineage choice rather than causal proof |
 | `ADAM_BETA2` | 0.95f | Second moment decay / Lion momentum update |
 | `ADAM_EPS` | 1e-8f | Adam epsilon (unused by Lion) |
 | `ACCUM_STEPS` | 6 | Gradient accumulation steps per weight update + restage; retained after the Aug 26 chain. The two-pair 6-vs-5 comparison was inconclusive, so this is a retained-lineage choice rather than causal proof |
