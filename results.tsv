@@ -135,3 +135,5 @@ d6396af	1.602377	5.7	discard	[Aug26:AB-accum] R3a ACCUM=3 arm (endpoint lost on 
 ccfb935	1.571062	5.7	keep	[Aug26:AB-accum34] R6a ACCUM=4 arm from anchor (control pending)
 ea69cbc	1.581343	5.7	discard	[Aug26:AB-accum34] R6b ACCUM=3 control from same anchor; loses to ACCUM=4
 1c2e1a5	1.577762	5.7	keep	[Aug26:AB-accum34] R6c ACCUM=4 regen from anchor (repro of 1.571062 arm); new best, endpoint saved
+ea69cbc	1.566481	5.7	discard	[Aug26:AB-accum45] R7b ACCUM=4 control from same anchor; loses to ACCUM=5
+ccfb935	1.558474	5.7	keep	[Aug26:AB-accum45] R7a ACCUM=5 arm from anchor; new best lineage
