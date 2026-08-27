@@ -33,6 +33,9 @@ for i, r in enumerate(rows):
 n = len(rows)
 xs = list(range(len(rows)))
 ys = [r['val_loss'] for r in rows]
+retained_pairs = [(i, r['val_loss']) for i, r in enumerate(rows) if r['status'] == 'keep']
+retained_best_i, retained_best = min(retained_pairs, key=lambda pair: pair[1]) if retained_pairs else (None, float('nan'))
+observed_best = min(ys) if ys else float('nan')
 
 # Running best (keeps only) — step line connecting kept improvements
 best_x, best_y = [], []
@@ -78,12 +81,21 @@ for x, y, r in zip(xs, ys, rows):
         ax.annotate(short, (x, y), textcoords='offset points',
                     xytext=(5, 5), fontsize=7, color='#888888',
                     ha='left', va='bottom', rotation=45)
+if retained_best_i is not None:
+    ax.scatter([retained_best_i], [retained_best], color='#1abc9c', marker='*',
+               s=180, zorder=6, edgecolors='white', linewidths=0.8)
+    ax.annotate(f'Retained best {retained_best:.6f}', (retained_best_i, retained_best),
+                textcoords='offset points', xytext=(-100, -18), fontsize=8,
+                color='#168f80', ha='left', va='top', fontweight='bold')
 
 n_kept = sum(1 for r in rows if r['status'] == 'keep')
 ax.set_xlabel('Experiment #', fontsize=12, color='#555555')
 ax.set_ylabel('Validation Loss (lower is better)', fontsize=12, color='#555555')
-ax.set_title(f'ANE Autoresearch Progress: {n} Experiments, {n_kept} Kept Improvements',
-             fontsize=14, fontweight='bold', color='#333333', pad=15)
+title = f'ANE Autoresearch Progress: {n} Experiments, {n_kept} Kept Improvements'
+if retained_best_i is not None:
+    suffix = ' (not retained)' if observed_best < retained_best else ''
+    title += f'\nRetained best: {retained_best:.6f} | observed minimum: {observed_best:.6f}{suffix}'
+ax.set_title(title, fontsize=14, fontweight='bold', color='#333333', pad=15)
 
 # Clean spines
 for spine in ['top', 'right']:
@@ -119,4 +131,4 @@ if valid_ys:
 
 plt.tight_layout()
 plt.savefig('progress.png', dpi=150, bbox_inches='tight', facecolor='white')
-print(f'Saved progress.png ({n} experiments, best={min(ys):.4f})')
+print(f'Saved progress.png ({n} experiments, retained_best={retained_best:.6f}, observed_min={observed_best:.6f})')

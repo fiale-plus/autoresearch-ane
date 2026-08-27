@@ -109,7 +109,81 @@ Source inspection found three issues that invalidated parts of the pre-August-21
 - Verdict: keep for now, but not an all-time best
 
 ## Source-informed next hypotheses (updated 2026-06-25)
-1. Keep the current best-known config as the sticky baseline: Lion + `LOSS_SCALE=1024` + `EMBED_LR_SCALE=1.0` + `ACCUM_STEPS=2` + `WEIGHT_DECAY=0.10`.
+1. (2026-06-25 text, superseded Aug 26) Sticky baseline is now Lion + `LOSS_SCALE=1024` + `EMBED_LR_SCALE=1.0` + `ACCUM_STEPS=6` + `WEIGHT_DECAY=0.10`; 6-vs-5 remains inconclusive.
 2. First confirm robustness from the same checkpoint trajectory; the fresh-restart cycle showed that checkpoint lineage is an experimental variable.
 3. Config-only follow-ups: small, single-variable probes around accumulation and LR schedule. Avoid broad weight-decay neighborhood sweeps unless a stronger hypothesis appears.
 4. Infra/code follow-ups from `README.md` and `updates/knowledge-sources-2026-06-25.md`: fused Metal Lion updates, embedding lookup speedup (`maderix/ANE` PR #39), dispatch-count reduction / compile-once discipline (`jmanhype/ane-lora-training`, `rustane`), and shape/tiling probes before large architecture changes.
+
+## Aug26 cycle (branch autoresearch-ane/aug26)
+- Wave 1 result: `val_loss 1.659077 -> 1.593065` in 5 keeps + 2 discards across 7 rows (R0-R2 floor continuations, R3c regen, R4; R3a/R3b discarded). This is historical; the retained best after Wave 2 is 1.540568.
+- Wave 1 same-anchor A/B: ACCUM=3 reached `1.602377` vs `1.615093` for ACCUM=2 (regen `1.603196`). These are bounded single-pair observations; the staging hypothesis motivated the test but was not established as the cause.
+- Reproducibility: winning arm re-run from anchor landed within 0.0008 (1.602377 vs 1.603196).
+
+## Infra recommendations from direct private-API research (ane-api-research lab, Aug 25-26)
+(Observations/hypotheses from short probes on this machine — not exhaustive. Raw probe evidence lives in that lab repo at `ane-lab/results/raw/`, not in this branch.)
+These are code-level (out of config-only scope), measured on this machine (M3 Pro, macOS 26.5):
+1. **Cached IOSurface bindings** (hypothesis): `_ANEClient.mapIOSurfacesWithModel:request:cacheInference:error:` persists IO bindings per program — could remove per-call binding setup overhead; it would NOT eliminate the ~50 ms changed-weight restage after each optimizer step (weights change every update). Biggest unknown for `ane_util_pct` (still ~5.7%).
+2. **QoS queues**: in this workload (8-layer conv, 200 iters/stream), two streams on different queues showed no advantage over same-queue (both ~3-4x slower than one stream). Whether other workloads see queue-level parallelism is untested. Do not spend effort on concurrent-stream designs; do use QoS to prioritize interactive evals.
+3. **RealTime lane**: `beginRealTimeTask` returned NO in our unentitled CLI process; cause unknown (no realtime-specific entitlement constant exists in `_ANEStrings`).
+4. **VisionCoreE5RT compile options** expose `fullyANEResident`, raw `customCompilationOptions`, multi-entry MIL programs (`milEntryPoints`) — a route to fewer dispatches than the current 10-kernel pipeline if we ever recompile the trainer's graph.
+5. **Perf counters** (`_ANEPerformanceStats`) were not populated even with `perfStatsMask=0xFFFFFFFF`; cause unknown (aned-side enablement is one hypothesis). Would give a true hw-time vs wall-time split if enabled.
+6. **SRAM working set**: the kernel-bench tooling warns above 32 MB working set; treat that warning as the observed bound and keep DIM*SEQ activation footprint under it when probing architecture changes (spill behavior itself was not directly measured).
+
+### Correction to the staging story above (exact-code v2 measurement, Aug 26 lab)
+The earlier ~49.4 ms breakdown was superseded. The authoritative v2 harness uses
+the trainer's own `transpose_weight`/`lion_update`, the actual
+`dispatch_apply(NLAYERS)` structure, full-vocab embedding, true SP strides, and
+real IOSurfaces. It measures optimizer update block **39.05 ms**, current
+10-kernel staging **15.95 ms**, pruned 6-live-kernel staging **11.98 ms**, total
+**~55.0 ms**. Common-surface checksums match between current and pruned staging.
+Pruning `sdpaFwd`/`woFwd`/`qBwd`/`kvBwd` (staged but never evaluated) saves ~4.0
+ms/update; 4/13 of the measured 0.5 s compile is only an equal-cost estimate.
+Skipping inactive embedding rows is unsafe because Lion momentum state persists.
+No private-API modification landed in `train_ane.m`; these measurements only
+motivated configuration tests. Full evidence: ane-api-research lab,
+`ane-lab/results/staging-anatomy.md` + `results/raw/exact-bench-v2.txt`.
+
+**Attribution note**: no private-API modification landed in `train_ane.m` this
+session (agent edits are config-only). The lab's 55 ms/update anatomy only
+MOTIVATED the ACCUM A/Bs; it did not establish staging amortization as their
+cause. Gains attribution: floor continuations + bounded ACCUM deltas, each
+from single stochastic arm pairs.
+
+### Wave 2 (Aug 26, continued): ACCUM_STEPS=4 adopted
+- Same-anchor A/B #2: ACCUM=4 reached `1.571062` vs `1.581343` for ACCUM=3
+  (regen `1.577762`; arms ran 2245 vs 2139 steps at ~110.7 ms_per_step).
+  ACCUM=4 adopted; sticky config now `ACCUM_STEPS=4`.
+- ACCUM=4 and ACCUM=5 each won their single same-anchor A/B at that point; the later 6-vs-5 follow-up was inconclusive. Treat the sequence as bounded stochastic evidence, not a monotonic law.
+- Next bounded probe at that point: ACCUM=5 same-anchor A/B (completed below).
+- Protocol fix: arm endpoints are now cloned (`ckpt.arm_*.bin`) BEFORE restoring
+  the anchor — R3a and R6a endpoints were lost by restoring first.
+
+### Wave 2 addendum: ACCUM=5 adopted (A/B chain 3>2, 4>3, 5>4)
+- Same-anchor A/B #3: ACCUM=5 `1.558474` vs ACCUM=4 control `1.566481`
+  (arm endpoint saved per protocol). Sticky config now `ACCUM_STEPS=5`.
+- Attribution correction: of the cumulative 1.659077 -> 1.540568 movement, floor continuations account for much of the total; controlled ACCUM advantages are bounded deltas (~0.0127 for 3 vs 2, ~0.0103 for 4 vs 3, ~0.0080 for 5 vs 4, and the 6-vs-5 pair is inconclusive). Each is a single stochastic arm pair; none establishes a causal mechanism.
+- Next bounded probe at that point: ACCUM=6 same-anchor A/B (completed below).
+
+### Staging duplication scope note
+The 2.0x figure among live kernels is PARAMETER-IDENTITY duplication, not
+byte-identical redundancy: `ffnFused` stages W1^T/W3^T (from transposed buffers)
+plus W2-original, while `ffnBwdW13t`/`stage_w2t` stage originals;
+`sdpaWoFwd` stages QKV/Wo transposes while `qkvBwd`/`wotBwd` stage originals.
+A shared weight-bank only halves host writes if MIL kernels can transpose/slice
+those layouts on-device without offsetting cost — the 16 -> 8 ms/update figure
+is therefore an UNPROVEN CEILING until a compiled correctness+timing probe of a
+layout-unified kernel set succeeds.
+
+### Wave 2 cont.: ACCUM=6 retained provisionally; first 6-vs-5 pair
+- Pair 1: ACCUM=6 `1.546580` vs ACCUM=5 control `1.551559` (2331 vs 2305 steps, ~111 ms/step). Delta +0.00498, inside the observed identical-config spread.
+- The second same-anchor pair below was required before treating the setting as established.
+
+### Wave 2 cont.: 6-vs-5 settled as INCONCLUSIVE (two-pair protocol)
+- Pair 1 (R8): 6 `1.546580` vs 5 `1.551559` -> delta +0.00498
+- Pair 2 (R9, fresh anchor = R8 arm endpoint): 6 `1.540568` vs 5 `1.540098`
+  -> delta -0.00047; the lower 5 endpoint was not saved before restore.
+- Aggregate: mean +0.0023, well inside the observed run-to-run spread
+  (~0.0067 between identical-config arms). Verdict: no established difference.
+- Retained lineage: ACCUM=6 with the saved 1.540568 checkpoint; R9b's
+  1.540098 is a measured discarded observation, not a retained endpoint.
+- Chain closed — further ACCUM probes are below the current noise floor.
