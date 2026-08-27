@@ -142,3 +142,13 @@ prune the four dead kernels (sdpaFwd/woFwd/qBwd/kvBwd are staged but never
 evaluated; ~2.7 ms + compile/memory). v2 harness (verbatim structure, real IOSurfaces, checksum-validated) measures update block 39.05 ms + staging 15.95 ms current / 11.98 ms pruned => ~55 ms total; pruning the four dead kernels saves ~4.0 ms/update (+~1.2% steps).
 The ACCUM=3 A/B result stands empirically. Full measurements:
 ane-api-research lab, `ane-lab/results/staging-anatomy.md` + `results/raw/exact-bench.txt`.
+
+### Wave 2 (Aug 26, continued): ACCUM_STEPS=4 adopted
+- Same-anchor A/B #2: ACCUM=4 reached `1.571062` vs `1.581343` for ACCUM=3
+  (regen `1.577762`; arms ran 2245 vs 2139 steps at ~110.7 ms_per_step).
+  ACCUM=4 adopted; sticky config now `ACCUM_STEPS=4`.
+- Trend: each +1 ACCUM keeps winning on this full-data lineage (2 -> 3 -> 4),
+  consistent with fewer weight-restagings per token and larger effective batch.
+  Next bounded probe: ACCUM=5 same-anchor A/B; stop when an A/B loses.
+- Protocol fix: arm endpoints are now cloned (`ckpt.arm_*.bin`) BEFORE restoring
+  the anchor — R3a and R6a endpoints were lost by restoring first.
