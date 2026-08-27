@@ -11,8 +11,8 @@
 #define ADAM_BETA1 0.9f
 #define ADAM_BETA2 0.95f
 #define ADAM_EPS 1e-8f
-// Cycle 2: accumulation probe after training/API bridge audit
-#define ACCUM_STEPS 7  // compare against ACCUM=6 from the same anchor
+// Cycle 3: same-anchor control for ACCUM=7 after E5RT option probe
+#define ACCUM_STEPS 6  // compare against Cycle 2 ACCUM=7
 #define GRAD_CLIP_MAX 1.0f
 #define WEIGHT_DECAY 0.1f
 // LR schedule: cosine decay with linear warmup
