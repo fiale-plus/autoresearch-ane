@@ -127,17 +127,17 @@ b42ac5f	1.800504	6.0	keep	[Aug21:SGDR-2] C3 anneal complete — ALL-TIME BEST (2
 87a6ba1	1.642882	5.7	keep	[Aug26:floor+50xdata] R0 baseline confirmation of best lineage
 87a6ba1	1.632695	5.7	keep	[Aug26:floor+50xdata] R1 floor continuation
 87a6ba1	1.626608	5.7	keep	[Aug26:floor+50xdata] R2 floor continuation
-d6396af	1.602377	5.7	discard	[Aug26:AB-accum] R3a ACCUM=3 arm (endpoint lost on anchor restore; superseded by R3c regen)
-041f696	1.615093	5.7	discard	[Aug26:AB-accum] R3b ACCUM=2 control from same anchor; loses to ACCUM=3
-9517e53	1.603196	5.7	keep	[Aug26:AB-accum] R3c ACCUM=3 regen from anchor; reproducible (1.6024/1.6032); new best
-9517e53	1.593065	5.7	keep	[Aug26:accum3+floor] R4 floor continuation on ACCUM=3 config; new best
-9517e53	1.588511	5.7	keep	[Aug26:accum3+floor] R5 floor continuation
-ccfb935	1.571062	5.7	discard	[Aug26:AB-accum34] R6a ACCUM=4 arm (endpoint lost on anchor restore; superseded by R6c regen)
-ea69cbc	1.581343	5.7	discard	[Aug26:AB-accum34] R6b ACCUM=3 control from same anchor; loses to ACCUM=4
-1c2e1a5	1.577762	5.7	keep	[Aug26:AB-accum34] R6c ACCUM=4 regen from anchor (repro of 1.571062 arm); new best, endpoint saved
-ea69cbc	1.566481	5.7	discard	[Aug26:AB-accum45] R7b ACCUM=4 control from same anchor; loses to ACCUM=5
-ccfb935	1.558474	5.7	keep	[Aug26:AB-accum45] R7a ACCUM=5 arm from anchor; new best lineage
-29d7571	1.551559	5.7	discard	[Aug26:AB-accum56] R8b ACCUM=5 control from same anchor; loses to ACCUM=6
+fe112af	1.602377	5.7	discard	[Aug26:AB-accum] R3a ACCUM=3 arm (endpoint lost on anchor restore; superseded by R3c regen)
+cc05093	1.615093	5.7	discard	[Aug26:AB-accum] R3b ACCUM=2 control from same anchor; loses to ACCUM=3
+e2bf801	1.603196	5.7	keep	[Aug26:AB-accum] R3c ACCUM=3 regen from anchor; reproducible (1.6024/1.6032); new best
+e2bf801	1.593065	5.7	keep	[Aug26:accum3+floor] R4 floor continuation on ACCUM=3 config; new best
+e2bf801	1.588511	5.7	keep	[Aug26:accum3+floor] R5 floor continuation
+a80ef34	1.571062	5.7	discard	[Aug26:AB-accum34] R6a ACCUM=4 arm (endpoint lost on anchor restore; superseded by R6c regen)
+12ee560	1.581343	5.7	discard	[Aug26:AB-accum34] R6b ACCUM=3 control from same anchor; loses to ACCUM=4
+29d4f2d	1.577762	5.7	keep	[Aug26:AB-accum34] R6c ACCUM=4 regen from anchor (repro of 1.571062 arm); new best, endpoint saved
+12ee560	1.566481	5.7	discard	[Aug26:AB-accum45] R7b ACCUM=4 control from same anchor; loses to ACCUM=5
+a80ef34	1.558474	5.7	keep	[Aug26:AB-accum45] R7a ACCUM=5 arm from anchor; new best lineage
+ad9e6cf	1.551559	5.7	discard	[Aug26:AB-accum56] R8b ACCUM=5 control from same anchor; loses to ACCUM=6
 23bf641	1.546580	5.7	keep	[Aug26:AB-accum56] R8a ACCUM=6 arm from anchor; new best lineage [PROVISIONAL -> two-pair verdict: 6-vs-5 inconclusive; retained]
-ea69cbc	1.540568	5.7	keep	[Aug26:AB2] R9a ACCUM=6 arm from R9 anchor; retained endpoint (best saved)
-ea69cbc	1.540098	5.7	discard	[Aug26:AB2] R9b ACCUM=5 control measured LOWER but endpoint not saved before restore; lost
+12ee560	1.540568	5.7	keep	[Aug26:AB2] R9a ACCUM=6 arm from R9 anchor; retained endpoint (best saved)
+12ee560	1.540098	5.7	discard	[Aug26:AB2] R9b ACCUM=5 control measured LOWER but endpoint not saved before restore; lost
