@@ -121,7 +121,7 @@ Starting from 6.109 baseline, key improvements discovered through autonomous exp
 
 ### Key discoveries
 
-- **Dynamic weight pipeline** (11x speedup): Compile 10 ANE kernels once at startup, pass weights via IOSurface spatial dimensions. Eliminated per-batch recompilation that consumed ~60% of wall time.
+- **Dynamic weight pipeline** (historical 10-kernel milestone): The original pipeline compiled 10 ANE kernels once at startup and passed weights via IOSurface spatial dimensions. The current trainer compiles 13 kernels, including the fused paths described above; no recompilation occurs during training.
 - **Mega-kernel fusion** (45% faster steps): Fusing sdpaFwd+woFwd into one kernel and qBwd+kvBwd into another eliminated 12 IOSurface round-trips per step. The bottleneck was IOSurface lock/unlock/memcpy overhead, not compute.
 - **Lion optimizer**: Sign-based weight updates with no second moment buffer. ~2x faster per update than Adam. Counter-intuitively, works best with Adam-style hyperparams (LR=5e-4, WD=0.1), not the lower LR/higher WD recommended in the paper.
 - **Vocab compaction** (3.5x classifier speedup): Only ~9K of 32K tokens appear in TinyStories. Reducing the classifier SGEMM from 32K to 9K vocab is free accuracy-wise.
