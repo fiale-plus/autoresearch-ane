@@ -172,3 +172,19 @@ A shared weight-bank only halves host writes if MIL kernels can transpose/slice
 those layouts on-device without offsetting cost — the 16 -> 8 ms/update figure
 is therefore an UNPROVEN CEILING until a compiled correctness+timing probe of a
 layout-unified kernel set succeeds.
+
+### Wave 2 cont.: ACCUM=6 adopted (chain 3>2, 4>3, 5>4, 6>5)
+- Same-anchor A/B #4: ACCUM=6 `1.546580` vs ACCUM=5 control `1.551559`
+  (2331 vs 2305 steps, ~111 ms/step). Delta shrank to ~5 milli-loss
+  (12.7 -> 10.3 -> 8.0 -> 5.0): the amortization curve is flattening.
+- Next probe: ACCUM=7 same-anchor A/B; expect the first loss within 1-2 steps.
+
+### Wave 2 cont.: 6-vs-5 settled as INCONCLUSIVE (two-pair protocol)
+- Pair 1 (R8): 6 `1.546580` vs 5 `1.551559` -> delta +0.00498
+- Pair 2 (R9, fresh anchor = R8 arm endpoint): 6 `1.540568` vs 5 `1.540098`
+  -> delta -0.00047
+- Aggregate: mean +0.0023, well inside the observed run-to-run spread
+  (~0.0067 between identical-config arms). Verdict: no established difference;
+  ACCUM=6 retained (its arm produced the best observed loss, and higher ACCUM
+  weakly favors fewer restagings). Chain closed — further ACCUM probes are
+  below the noise floor.

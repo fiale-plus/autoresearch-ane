@@ -96,7 +96,7 @@ This fork adds an **ANE training backend** that runs transformer training direct
 
 ### Current best results
 
-**val_loss = 1.558474** (August 2026: full 50-shard TinyStories dataset; ~67M-param model, 5-min budget per cycle. Same-anchor A/B adopted `ACCUM_STEPS=5` via three successive same-anchor A/Bs (3 beat 2: 1.6024 vs 1.6151; 4 beat 3: 1.5711 vs 1.5813; 5 beat 4: 1.5585 vs 1.5665), motivated by a staging-overhead hypothesis from direct ANE measurements (probe evidence in the ane-api-research lab: `ane-lab/results/raw/`). Previous milestones: 2.432 April, 2.320954 June, 1.800504 on 8 shards, 1.659077 Aug 21.)
+**val_loss = 1.540568** (August 2026: full 50-shard TinyStories dataset; ~67M-param model, 5-min budget per cycle. Same-anchor A/B adopted `ACCUM_STEPS=6` via four successive same-anchor A/Bs (3>2: 1.6024/1.6151; 4>3: 1.5711/1.5813; 5>4: 1.5585/1.5665; 6-vs-5 inconclusive at the noise floor: 1.5466/1.5516 then 1.5406/1.5401), motivated by a staging-overhead hypothesis from direct ANE measurements (probe evidence in the ane-api-research lab: `ane-lab/results/raw/`). Previous milestones: 2.432 April, 2.320954 June, 1.800504 on 8 shards, 1.659077 Aug 21.)
 
 Starting from 6.109 baseline, key improvements discovered through autonomous experimentation:
 
@@ -269,7 +269,7 @@ This project builds on and references the following repositories:
 
 ### Recent findings from the ecosystem (June–August 2026)
 
-**Current local best** (our ANE autoresearch, August 2026): `val_loss=1.593065` with Lion + `LOSS_SCALE=1024` + `EMBED_LR_SCALE=1.0` + `ACCUM_STEPS=5`, reached from the June 2.320954 anchor via SGDR warm restarts, all 50 TinyStories shards (~1.025B tokens), and Aug 26 same-anchor A/B chain that moved ACCUM_STEPS 3->4->5 (motivated by a staging-overhead hypothesis from direct ANE measurements: ~50 ms weight re-staging per update; probe evidence in `ane-api-research/ane-lab/results/raw/`). Three validity fixes made this possible: resume now honors config `LEARNING_RATE`/`TOTAL_STEPS` (the checkpoint header used to silently override them), `--reset-schedule` re-anneals the cosine schedule, and sampling uses a wall-clock seed. See `ane/autoresearch.md` and `updates/analysis-2026-08-21.md`.
+**Current local best** (our ANE autoresearch, August 2026): `val_loss=1.593065` with Lion + `LOSS_SCALE=1024` + `EMBED_LR_SCALE=1.0` + `ACCUM_STEPS=6` (6-vs-5 inconclusive), reached from the June 2.320954 anchor via SGDR warm restarts, all 50 TinyStories shards (~1.025B tokens), and Aug 26 same-anchor A/B chain that moved ACCUM_STEPS 3->4->5->6 (motivated by a staging-overhead hypothesis from direct ANE measurements: ~50 ms weight re-staging per update; probe evidence in `ane-api-research/ane-lab/results/raw/`). Three validity fixes made this possible: resume now honors config `LEARNING_RATE`/`TOTAL_STEPS` (the checkpoint header used to silently override them), `--reset-schedule` re-anneals the cosine schedule, and sampling uses a wall-clock seed. See `ane/autoresearch.md` and `updates/analysis-2026-08-21.md`.
 
 **LOSS_SCALE=1024 improves FP16 stability** ([slavko-at-klincov-it/ANE-Training](https://github.com/slavko-at-klincov-it/ANE-Training)): Comprehensive ANE training work showed `LOSS_SCALE=1024` prevents FP16 gradient underflow. Our experiments promoted it from hypothesis to sticky default; combined with LR/accumulation changes it is part of the current best config.
 

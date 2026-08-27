@@ -137,3 +137,7 @@ ea69cbc	1.581343	5.7	discard	[Aug26:AB-accum34] R6b ACCUM=3 control from same an
 1c2e1a5	1.577762	5.7	keep	[Aug26:AB-accum34] R6c ACCUM=4 regen from anchor (repro of 1.571062 arm); new best, endpoint saved
 ea69cbc	1.566481	5.7	discard	[Aug26:AB-accum45] R7b ACCUM=4 control from same anchor; loses to ACCUM=5
 ccfb935	1.558474	5.7	keep	[Aug26:AB-accum45] R7a ACCUM=5 arm from anchor; new best lineage
+29d7571	1.551559	5.7	discard	[Aug26:AB-accum56] R8b ACCUM=5 control from same anchor; loses to ACCUM=6
+23bf641	1.546580	5.7	keep	[Aug26:AB-accum56] R8a ACCUM=6 arm from anchor; new best lineage [PROVISIONAL -> two-pair verdict: 6-vs-5 inconclusive; retained]
+ea69cbc	1.540568	5.7	keep	[Aug26:AB2] R9a ACCUM=6 arm from R9 anchor; retained endpoint (best saved)
+ea69cbc	1.540098	5.7	discard	[Aug26:AB2] R9b ACCUM=5 control measured LOWER but endpoint not saved before restore; lost
