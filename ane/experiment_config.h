@@ -11,8 +11,8 @@
 #define ADAM_BETA1 0.9f
 #define ADAM_BETA2 0.95f
 #define ADAM_EPS 1e-8f
-// Current best ACCUM: 2 with SGDR restarts and full-data continuation.
-#define ACCUM_STEPS 2
+// R3 A/B probe: dispatch-floor model predicts staging overhead 27%->18% at ACCUM 3
+#define ACCUM_STEPS 3
 #define GRAD_CLIP_MAX 1.0f
 #define WEIGHT_DECAY 0.1f
 // LR schedule: cosine decay with linear warmup
