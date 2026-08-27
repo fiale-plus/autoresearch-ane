@@ -152,3 +152,23 @@ ane-api-research lab, `ane-lab/results/staging-anatomy.md` + `results/raw/exact-
   Next bounded probe: ACCUM=5 same-anchor A/B; stop when an A/B loses.
 - Protocol fix: arm endpoints are now cloned (`ckpt.arm_*.bin`) BEFORE restoring
   the anchor — R3a and R6a endpoints were lost by restoring first.
+
+### Wave 2 addendum: ACCUM=5 adopted (A/B chain 3>2, 4>3, 5>4)
+- Same-anchor A/B #3: ACCUM=5 `1.558474` vs ACCUM=4 control `1.566481`
+  (arm endpoint saved per protocol). Sticky config now `ACCUM_STEPS=5`.
+- Attribution correction: of the session's 1.659077 -> 1.577762 movement, floor
+  continuations account for much of the total; the controlled ACCUM advantages
+  are bounded deltas (~0.0127 for 3 vs 2, ~0.0103 for 4 vs 3, ~0.0080 for 5 vs 4),
+  each from a single stochastic arm pair — treat as bounded A/B evidence, not
+  causal proof or the majority share.
+- Next bounded probe: ACCUM=6 same-anchor A/B; stop at first losing A/B.
+
+### Staging duplication scope note
+The 2.0x figure among live kernels is PARAMETER-IDENTITY duplication, not
+byte-identical redundancy: `ffnFused` stages W1^T/W3^T (from transposed buffers)
+plus W2-original, while `ffnBwdW13t`/`stage_w2t` stage originals;
+`sdpaWoFwd` stages QKV/Wo transposes while `qkvBwd`/`wotBwd` stage originals.
+A shared weight-bank only halves host writes if MIL kernels can transpose/slice
+those layouts on-device without offsetting cost — the 16 -> 8 ms/update figure
+is therefore an UNPROVEN CEILING until a compiled correctness+timing probe of a
+layout-unified kernel set succeeds.
