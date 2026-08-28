@@ -11,8 +11,8 @@
 #define ADAM_BETA1 0.9f
 #define ADAM_BETA2 0.95f
 #define ADAM_EPS 1e-8f
-// R3 A/B probe: dispatch-floor model predicts staging overhead 27%->18% at ACCUM 3
-#define ACCUM_STEPS 5  // adopted Aug26 A/B chain: 3>2,4>3,5>4,6>5(provisional)
+// Cycle 3: same-anchor control for ACCUM=7 after E5RT option probe
+#define ACCUM_STEPS 6  // compare against Cycle 2 ACCUM=7
 #define GRAD_CLIP_MAX 1.0f
 #define WEIGHT_DECAY 0.1f
 // LR schedule: cosine decay with linear warmup

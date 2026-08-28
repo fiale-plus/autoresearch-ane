@@ -133,11 +133,12 @@ These are code-level (out of config-only scope), measured on this machine (M3 Pr
 The earlier ~49.4 ms breakdown was superseded. The authoritative v2 harness uses
 the trainer's own `transpose_weight`/`lion_update`, the actual
 `dispatch_apply(NLAYERS)` structure, full-vocab embedding, true SP strides, and
-real IOSurfaces. It measures optimizer update block **39.05 ms**, current
-10-kernel staging **15.95 ms**, pruned 6-live-kernel staging **11.98 ms**, total
-**~55.0 ms**. Common-surface checksums match between current and pruned staging.
-Pruning `sdpaFwd`/`woFwd`/`qBwd`/`kvBwd` (staged but never evaluated) saves ~4.0
-ms/update; 4/13 of the measured 0.5 s compile is only an equal-cost estimate.
+real IOSurfaces. It measures optimizer update block **39.05 ms**, current ten
+weight-stage-function staging **15.95 ms**, pruned six-live-function staging
+**11.98 ms**, total **~55.0 ms**. Common-surface checksums match between current
+and pruned staging. Pruning `sdpaFwd`/`woFwd`/`qBwd`/`kvBwd` (staged but never
+evaluated) saves ~4.0 ms/update; 4/12 of the measured 0.5 s compile is only an
+equal-cost estimate.
 Skipping inactive embedding rows is unsafe because Lion momentum state persists.
 No private-API modification landed in `train_ane.m`; these measurements only
 motivated configuration tests. Full evidence: ane-api-research lab,
@@ -187,3 +188,27 @@ layout-unified kernel set succeeds.
 - Retained lineage: ACCUM=6 with the saved 1.540568 checkpoint; R9b's
   1.540098 is a measured discarded observation, not a retained endpoint.
 - Chain closed — further ACCUM probes are below the current noise floor.
+
+## Latest-mainline API→training replay (three bounded cycles, Aug 27)
+- Cycle 1: API audit found 12 compiled / 8 evaluated kernels and the E5RT
+  multi-entry/residency hooks. Applied retained ACCUM=6 from the local checkpoint;
+  `val_loss=1.536972`, 1533 steps, 165.8 ms/step, ANE utilization 3.8%.
+  No quiet-state gate was run before this cycle; post-run pressure was failed,
+  so the observation is discarded for clean comparisons.
+- Cycle 2: shared-bank design audit showed live parameter-identity duplication
+  2.0x across incompatible layouts; a canonical bank requires compiled MIL
+  slicing/transpose validation. ACCUM=7 from the identical cycle anchor:
+  `val_loss=1.533580`, 1563 steps, 165.7 ms/step, 3.8% utilization.
+  Preflight failed at 38% free; observation discarded as pressure-contended.
+- Cycle 3: E5RT option probe loaded VisionCore explicitly; options reported
+  `fullyANEResident=1`, `computeDeviceTypes=0x0` by default, and accepted
+  multi-entry `main/backward` serialization. No model compile or training
+  optimization was claimed. ACCUM=6 control from the same cycle anchor:
+  `val_loss=1.538465`, 1546 steps, 164.9 ms/step, 3.8% utilization; preflight
+  passed, endpoint retained.
+- Feedback: latest mainline replay has a clean retained improvement versus
+  1.540568, but absolute throughput is resource-sensitive (~165 ms/step vs the
+  earlier ~111 ms/step). The API findings are actionable design targets, not
+  landed trainer changes. Next concrete step: rerun the ACCUM=6/7 pair after
+  the machine is quiet, then prototype dead-kernel pruning under a code-enabled
+  trainer branch.

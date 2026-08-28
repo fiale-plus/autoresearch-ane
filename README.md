@@ -87,7 +87,7 @@ This fork adds an **ANE training backend** that runs transformer training direct
 ### How it works
 
 - Uses TinyStories dataset with Llama2 32K BPE tokenizer (ANE's native data format)
-- **Dynamic weight pipeline**: 13 ANE kernels compiled once at startup (~1s). Weights passed via IOSurface spatial dimensions using `slice_by_size` — no recompilation during training
+- **Dynamic weight pipeline**: 12 ANE kernels compile once at startup (~1s); 4 legacy kernels are currently staged but not evaluated. Weights pass via IOSurface spatial dimensions using `slice_by_size` — no recompilation during training
 - **Mega-kernel fusion**: Forward pass uses fused sdpaWoFwd (SDPA + Wo projection in one kernel) and fused qkvBwd (Q+KV backward in one kernel), eliminating 12 IOSurface round-trips per step
 - **Pipeline overlap**: CPU gradient computations (dW cblas) run asynchronously during ANE forward pass. Embedding backward is also async.
 - After each Lion/Adam update, weights are transposed and re-staged to per-layer IOSurfaces
@@ -96,7 +96,7 @@ This fork adds an **ANE training backend** that runs transformer training direct
 
 ### Current best results
 
-**val_loss = 1.540568** (August 2026 retained best: full 50-shard TinyStories dataset; ~67M-param model, 5-min budget per cycle. The bounded same-anchor A/B chain moved ACCUM_STEPS 3→4→5; the two-pair 6-vs-5 follow-up was inconclusive, so ACCUM=6 is retained with the saved 1.540568 checkpoint. The 1.540098 control measurement was lower but its endpoint was not saved. Lab measurements only motivated the configuration tests; no private-API change landed in the trainer. Previous milestones: 2.432 April, 2.320954 June, 1.800504 on 8 shards, 1.659077 Aug 21.)
+**val_loss = 1.538465** (August 2026 retained clean replay from latest `origin/master`: full 50-shard TinyStories dataset; ~67M-param model, 5-min budget per cycle. Cycle 1 ACCUM=6 reached 1.536972 under an ungated/pressure-contended run; cycle 2 ACCUM=7 reached 1.533580 after a failed quiet-state gate and was discarded; cycle 3 ACCUM=6 reached 1.538465 with the gate passing and is retained. The API audit motivated the configuration iterations; no private-API change landed in the trainer. Previous retained milestone: 1.540568.)
 
 Starting from 6.109 baseline, key improvements discovered through autonomous experimentation:
 
@@ -118,10 +118,11 @@ Starting from 6.109 baseline, key improvements discovered through autonomous exp
 | **+ ACCUM_STEPS=4 (A/B + continuation)** | **Bounded same-anchor evidence; Aug 26** | **1.5778** | **111** | **~2245** |
 | **+ ACCUM_STEPS=5 (A/B)** | **Bounded same-anchor evidence; Aug 26** | **1.5585** | **110** | **~2317** |
 | **+ ACCUM_STEPS=6 (retained)** | **Two-pair 6-vs-5 follow-up inconclusive; saved endpoint** | **1.5406** | **111** | **~2331** |
+| **+ latest mainline replay (Luna API cycles)** | **API audit feedback + pressure-gated three-cycle replay; clean retained endpoint** | **1.5385** | **165** | **~1546** |
 
 ### Key discoveries
 
-- **Dynamic weight pipeline** (historical 10-kernel milestone): The original pipeline compiled 10 ANE kernels once at startup and passed weights via IOSurface spatial dimensions. The current trainer compiles 13 kernels, including the fused paths described above; no recompilation occurs during training.
+- **Dynamic weight pipeline** (historical 10-kernel milestone): The original pipeline compiled 10 ANE kernels once at startup. The current trainer compiles 12 kernels, with 4 legacy paths currently dead and 8 evaluated; no recompilation occurs during training.
 - **Mega-kernel fusion** (45% faster steps): Fusing sdpaFwd+woFwd into one kernel and qBwd+kvBwd into another eliminated 12 IOSurface round-trips per step. The bottleneck was IOSurface lock/unlock/memcpy overhead, not compute.
 - **Lion optimizer**: Sign-based weight updates with no second moment buffer. ~2x faster per update than Adam. Counter-intuitively, works best with Adam-style hyperparams (LR=5e-4, WD=0.1), not the lower LR/higher WD recommended in the paper.
 - **Vocab compaction** (3.5x classifier speedup): Only ~9K of 32K tokens appear in TinyStories. Reducing the classifier SGEMM from 32K to 9K vocab is free accuracy-wise.
@@ -168,9 +169,9 @@ The agent edits `ane/experiment_config.h`. All hyperparameters and their current
 |---|---|---|
 | `LEARNING_RATE` | 3.8e-4f | Base peak LR in the current full-dataset run; historical 5e-4f result predates valid resume overrides |
 | `ADAM_BETA1` | 0.9f | First moment decay (used by both Adam and Lion) |
+| `ACCUM_STEPS` | 6 | Retained clean endpoint in the latest mainline replay; ACCUM=7 produced a lower but pressure-contended observation and was discarded |
 | `ADAM_BETA2` | 0.95f | Second moment decay / Lion momentum update |
 | `ADAM_EPS` | 1e-8f | Adam epsilon (unused by Lion) |
-| `ACCUM_STEPS` | 6 | Gradient accumulation steps per weight update + restage; retained after the Aug 26 chain. The two-pair 6-vs-5 comparison was inconclusive, so this is a retained-lineage choice rather than causal proof |
 | `GRAD_CLIP_MAX` | 1.0f | Global L2 gradient norm clip threshold |
 | `WEIGHT_DECAY` | 0.1f | Decoupled weight decay. Applied only to weight matrices, not embeddings or RMSNorm |
 | `TOTAL_STEPS` | 3000 | Cosine LR schedule denominator (`adam_t` units); reset with `--reset-schedule` for a new SGDR arc |
@@ -272,11 +273,11 @@ This project builds on and references the following repositories:
 
 ### Recent findings from the ecosystem (June–August 2026)
 
-**Current local best** (our ANE autoresearch, August 2026): `val_loss=1.540568` with Lion + `LOSS_SCALE=1024` + `EMBED_LR_SCALE=1.0` + `ACCUM_STEPS=6` (6-vs-5 inconclusive; 1.540568 endpoint retained), reached from the June 2.320954 anchor via SGDR warm restarts, all 50 TinyStories shards (~1.025B tokens), and Aug 26 bounded continuation/A-B work. No private-API modification landed in `train_ane.m`; the ane-api-research measurements only motivated configuration tests and did not establish their cause. See `ane/autoresearch.md` and `updates/analysis-2026-08-21.md`.
+**Current local best** (latest mainline replay, August 2026): `val_loss=1.538465` with Lion + `LOSS_SCALE=1024` + `EMBED_LR_SCALE=1.0` + `ACCUM_STEPS=6` (clean cycle-3 endpoint retained). Cycle-2 ACCUM=7 measured 1.533580 but failed the quiet-state gate and was discarded; no private-API modification landed in `train_ane.m`, and the API measurements served as hypotheses/application feedback only. See `ane/autoresearch.md` and `updates/analysis-2026-08-21.md`.
 
 **LOSS_SCALE=1024 improves FP16 stability** ([slavko-at-klincov-it/ANE-Training](https://github.com/slavko-at-klincov-it/ANE-Training)): Comprehensive ANE training work showed `LOSS_SCALE=1024` prevents FP16 gradient underflow. Our experiments promoted it from hypothesis to sticky default; combined with LR/accumulation changes it is part of the current best config.
 
-**Embedding LR equalization** (our experiments, April–August 2026): `EMBED_LR_SCALE=1.0` beats higher embedding LR. The embedding matrix overfits with a 2× scale; equal LR remains in the current full-dataset run (now 1.540568).
+**Embedding LR equalization** (our experiments, April–August 2026): `EMBED_LR_SCALE=1.0` beats higher embedding LR. The embedding matrix overfits with a 2× scale; equal LR remains in the current full-dataset run (now 1.538465).
 
 **Accumulation trajectory sensitivity** (our experiments, June–August 2026): From the anchored checkpoint, lowering accumulation to `ACCUM_STEPS=2` improved best val_loss to 2.320954. Subsequent SGDR restarts and data expansion improved it to 1.659077 on the full 50-shard split; checkpoint lineage remains an experimental variable.
 
@@ -288,7 +289,7 @@ This project builds on and references the following repositories:
 
 **ANE architecture fit matters more than parameter count** ([harsha-gouru/apple-neural-engine-notes](https://github.com/harsha-gouru/apple-neural-engine-notes), [harsha-gouru/ane-gmlp-research](https://github.com/harsha-gouru/ane-gmlp-research)): Software overhead, tensor layout, residual compatibility, and SRAM/tiling constraints dominate many runs. Future non-config research should consider bounded attention, gMLP, recurrent/state-space, or adapter/frozen-base variants rather than only scaling vanilla GPT blocks.
 
-**August 2026 bounded probe** (our ANE autoresearch): Three five-minute probes from the preserved 2.320954 checkpoint (`ACCUM_STEPS=1`, `LEARNING_RATE=3.6e-4`, and `3.7e-4`) reached 2.401719, 2.346754, and 2.348575 respectively. All were discarded; the later full-data retained best is 1.540568.
+**August 2026 bounded probe** (our ANE autoresearch): Three five-minute probes from the preserved 2.320954 checkpoint (`ACCUM_STEPS=1`, `LEARNING_RATE=3.6e-4`, and `3.7e-4`) reached 2.401719, 2.346754, and 2.348575 respectively. All were discarded; the latest mainline replay retained 1.538465 under the passing quiet-state gate.
 
 **Apple platform guidance** ([WWDC26 machine-learning guide](https://developer.apple.com/wwdc26/guides/machine-learning/)): Apple now positions MLX for Apple-silicon research/training and Core AI for on-device model loading, specialization, and inference. The public guide does not expose general-purpose ANE backpropagation, so the reverse-engineered backend remains a research path rather than a replacement for a supported API.
 
